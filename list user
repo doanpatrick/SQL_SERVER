@@ -1,0 +1,10 @@
+select	dp.name as Username,
+		dp.type_desc as UserType,
+		dp.authentication_type as AuthType,
+		sp.name as LoginName
+
+from sys.database_principals dp
+left join sys.server_principals sp on dp.sid = sp.sid
+
+where dp.type In ('S','U','G')
+and dp.name = 'oddo\xdat_x_dbm_1';

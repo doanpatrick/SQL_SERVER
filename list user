@@ -8,3 +8,68 @@ left join sys.server_principals sp on dp.sid = sp.sid
 
 where dp.type In ('S','U','G')
 and dp.name = 'oddo\xdat_x_dbm_1';
+
+
+
+
+
+DECLARE @LoginName SYSNAME = 'NomDuLogin';  -- Remplace par ton login
+
+CREATE TABLE #UserMappings (
+    DatabaseName SYSNAME,
+    IsMapped BIT,
+    UserName SYSNAME NULL,
+    UserType VARCHAR(100) NULL
+);
+
+DECLARE @DBName SYSNAME;
+DECLARE @SQL NVARCHAR(MAX);
+
+DECLARE db_cursor CURSOR FOR 
+SELECT name 
+FROM sys.databases 
+WHERE state_desc = 'ONLINE' AND name NOT IN ('tempdb');
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @DBName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @SQL = '
+    USE [' + QUOTENAME(@DBName) + '];
+    IF EXISTS (
+        SELECT 1 FROM sys.database_principals WHERE sid = SUSER_SID(@LoginName)
+    )
+    BEGIN
+        INSERT INTO #UserMappings (DatabaseName, IsMapped, UserName, UserType)
+        SELECT 
+            ''' + @DBName + ''',
+            1,
+            name,
+            type_desc
+        FROM sys.database_principals
+        WHERE sid = SUSER_SID(@LoginName);
+    END
+    ELSE
+    BEGIN
+        INSERT INTO #UserMappings (DatabaseName, IsMapped, UserName, UserType)
+        SELECT 
+            ''' + @DBName + ''',
+            0,
+            NULL,
+            NULL;
+    END
+    ';
+    
+    EXEC sp_executesql @SQL, N'@LoginName SYSNAME', @LoginName;
+
+    FETCH NEXT FROM db_cursor INTO @DBName;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+-- Résultat final :
+SELECT * FROM #UserMappings ORDER BY DatabaseName;
+
+DROP TABLE #UserMappings;

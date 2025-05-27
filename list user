@@ -194,3 +194,73 @@ DEALLOCATE db_cursor;
 SELECT * FROM #UserMappings ORDER BY DatabaseName;
 
 DROP TABLE #UserMappings;
+
+
+
+
+
+
+
+
+DECLARE @LoginName SYSNAME = 'NomDuLogin';  -- Remplace par ton login
+
+-- Supprimer la table temporaire si elle existe déjà
+IF OBJECT_ID('tempdb..#UserMappings') IS NOT NULL
+    DROP TABLE #UserMappings;
+
+CREATE TABLE #UserMappings (
+    DatabaseName SYSNAME,
+    IsMapped BIT,
+    UserName SYSNAME NULL,
+    UserType VARCHAR(100) NULL
+);
+
+DECLARE @DBName SYSNAME;
+DECLARE @SQL NVARCHAR(MAX);
+
+DECLARE db_cursor CURSOR FOR 
+SELECT name 
+FROM sys.databases 
+WHERE state_desc = 'ONLINE' AND name NOT IN ('tempdb');
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @DBName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @SQL = '
+    DECLARE @SID VARBINARY(85) = SUSER_SID(@LoginName);
+    USE ' + QUOTENAME(@DBName) + ';
+    IF EXISTS (
+        SELECT 1 FROM sys.database_principals WHERE sid = @SID
+    )
+    BEGIN
+        INSERT INTO #UserMappings (DatabaseName, IsMapped, UserName, UserType)
+        SELECT 
+            DB_NAME(),
+            1,
+            name,
+            type_desc
+        FROM sys.database_principals
+        WHERE sid = @SID;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO #UserMappings (DatabaseName, IsMapped, UserName, UserType)
+        VALUES (DB_NAME(), 0, NULL, NULL);
+    END
+    ';
+
+    EXEC sp_executesql @SQL, N'@LoginName SYSNAME', @LoginName;
+
+    FETCH NEXT FROM db_cursor INTO @DBName;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+-- Résultat final
+SELECT * FROM #UserMappings ORDER BY DatabaseName;
+
+DROP TABLE #UserMappings;
+

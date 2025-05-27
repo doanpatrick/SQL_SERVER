@@ -12,6 +12,63 @@ and dp.name = 'oddo\xdat_x_dbm_1';
 
 
 
+DECLARE @LoginName SYSNAME = 'NomDuLogin';  -- Remplace par le nom du login
+
+CREATE TABLE #UserMappings (
+    DatabaseName SYSNAME,
+    UserName SYSNAME,
+    UserType VARCHAR(100)
+);
+
+DECLARE @DBName SYSNAME;
+DECLARE db_cursor CURSOR FOR 
+SELECT name 
+FROM sys.databases 
+WHERE state_desc = 'ONLINE' AND name NOT IN ('tempdb');
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @DBName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    DECLARE @SQL NVARCHAR(MAX) = '
+    USE [' + QUOTENAME(@DBName) + '];
+    IF EXISTS (
+        SELECT 1 FROM sys.database_principals 
+        WHERE sid = SUSER_SID(@LoginName)
+    )
+    BEGIN
+        INSERT INTO #UserMappings (DatabaseName, UserName, UserType)
+        SELECT 
+            ''' + @DBName + ''',
+            name,
+            type_desc
+        FROM sys.database_principals
+        WHERE sid = SUSER_SID(@LoginName)
+    END
+    ';
+    
+    EXEC sp_executesql @SQL, N'@LoginName SYSNAME', @LoginName;
+
+    FETCH NEXT FROM db_cursor INTO @DBName;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+-- Résultat final :
+SELECT * FROM #UserMappings;
+
+DROP TABLE #UserMappings;
+
+
+
+
+
+
+
+
+
 
 DECLARE @LoginName SYSNAME = 'NomDuLogin';  -- Remplace par ton login
 

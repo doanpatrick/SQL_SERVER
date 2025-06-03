@@ -62,3 +62,149 @@ SELECT * FROM #UserMappings ORDER BY DatabaseName;
 
 DROP TABLE #UserMappings;
 
+
+
+
+performance
+
+-- Requêtes les plus coûteuses en CPU sur une période précise
+SELECT 
+    qsqt.query_id,
+    qt.query_sql_text,
+    p.query_plan,
+    rs.avg_cpu_time,
+    rs.avg_duration,
+    rs.execution_type_desc,
+    rs.last_execution_time,
+    rs.execution_count
+FROM sys.query_store_query_text qt
+JOIN sys.query_store_query qsqt ON qt.query_text_id = qsqt.query_text_id
+JOIN sys.query_store_plan p ON qsqt.query_id = p.query_id
+JOIN sys.query_store_runtime_stats rs ON p.plan_id = rs.plan_id
+JOIN sys.query_store_runtime_stats_interval rsi ON rs.runtime_stats_interval_id = rsi.runtime_stats_interval_id
+WHERE rsi.start_time >= DATEADD(HOUR, -2, GETDATE())  -- << à adapter selon la période à investiguer
+ORDER BY rs.avg_cpu_time DESC;
+
+
+
+-- Plan forcing ou plan régressé (ex. plan plus lent adopté récemment)
+SELECT 
+    q.query_id,
+    qt.query_sql_text,
+    p.plan_id,
+    p.is_forced_plan,
+    p.is_regressed_plan,
+    rs.avg_duration,
+    rs.execution_count,
+    rs.last_execution_time
+FROM sys.query_store_query_text qt
+JOIN sys.query_store_query q ON qt.query_text_id = q.query_text_id
+JOIN sys.query_store_plan p ON q.query_id = p.query_id
+JOIN sys.query_store_runtime_stats rs ON p.plan_id = rs.plan_id
+WHERE rs.last_execution_time >= DATEADD(HOUR, -1, GETDATE())
+ORDER BY rs.avg_duration DESC;
+
+
+-- Basé sur les plans encore présents en cache (DMV)
+SELECT TOP 10 
+    qs.sql_handle,
+    qs.plan_handle,
+    st.text AS query_text,
+    qp.query_plan,
+    qs.execution_count,
+    qs.total_worker_time / 1000 AS total_cpu_ms,
+    qs.total_elapsed_time / 1000 AS total_duration_ms,
+    qs.creation_time,
+    qs.last_execution_time
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
+WHERE qs.last_execution_time >= DATEADD(HOUR, -1, GETDATE())
+ORDER BY total_cpu_ms DESC;
+
+***************
+
+
+-- 1. TOP Waits par type (hors idles)
+SELECT 
+    TOP 20 wait_type, 
+    wait_time_ms / 1000.0 AS wait_time_sec,
+    waiting_tasks_count,
+    wait_time_ms / NULLIF(waiting_tasks_count, 0) AS avg_wait_time_ms
+FROM sys.dm_os_wait_stats
+WHERE wait_type NOT IN (
+    'CLR_SEMAPHORE','LAZYWRITER_SLEEP','RESOURCE_QUEUE','SLEEP_TASK',
+    'SLEEP_SYSTEMTASK','SQLTRACE_BUFFER_FLUSH','WAITFOR','LOGMGR_QUEUE',
+    'CHECKPOINT_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT',
+    'BROKER_TO_FLUSH','BROKER_TASK_STOP','CLR_MANUAL_EVENT','CLR_AUTO_EVENT',
+    'DISPATCHER_QUEUE_SEMAPHORE','FT_IFTS_SCHEDULER_IDLE_WAIT','XE_DISPATCHER_WAIT',
+    'XE_DISPATCHER_JOIN','SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+ORDER BY wait_time_ms DESC;
+
+-- 2. Sessions avec de fortes attentes (waits en cours)
+SELECT 
+    s.session_id, 
+    r.status, 
+    r.command, 
+    r.wait_type, 
+    r.wait_time,
+    r.wait_resource,
+    r.blocking_session_id,
+    r.cpu_time, 
+    r.total_elapsed_time,
+    s.login_name, 
+    s.host_name, 
+    s.program_name
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+WHERE r.status = 'suspended'
+ORDER BY r.wait_time DESC;
+
+-- 3. Blocages actifs (blocking chain)
+SELECT 
+    session_id, 
+    blocking_session_id,
+    wait_type, 
+    wait_time,
+    wait_resource,
+    (SELECT TEXT FROM sys.dm_exec_sql_text(sql_handle)) AS query_text
+FROM sys.dm_exec_requests
+WHERE blocking_session_id <> 0;
+
+-- 4. Contention sur les verrous (verrouillage/lock contention)
+SELECT 
+    resource_type,
+    request_mode,
+    request_status,
+    COUNT(*) AS request_count
+FROM sys.dm_tran_locks
+GROUP BY resource_type, request_mode, request_status
+ORDER BY request_count DESC;
+
+-- 5. TOP IO Consumers par base et fichier
+SELECT 
+    DB_NAME(vfs.database_id) AS database_name,
+    mf.name AS file_name,
+    vfs.num_of_reads, 
+    vfs.num_of_writes,
+    vfs.io_stall_read_ms, 
+    vfs.io_stall_write_ms,
+    (vfs.io_stall_read_ms + vfs.io_stall_write_ms) AS total_stall_ms
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) vfs
+JOIN sys.master_files mf ON vfs.database_id = mf.database_id AND vfs.file_id = mf.file_id
+ORDER BY total_stall_ms DESC;
+
+-- 6. Indexes avec plus de lecture que d’écriture (potentiel problème IO ou manque d’index)
+SELECT 
+    DB_NAME(database_id) AS database_name,
+    OBJECT_NAME(i.object_id, database_id) AS object_name,
+    i.name AS index_name,
+    user_seeks, user_scans, user_lookups, user_updates,
+    (user_seeks + user_scans + user_lookups) AS total_reads
+FROM sys.dm_db_index_usage_stats i
+WHERE database_id = DB_ID()
+ORDER BY total_reads DESC;
+
+
+
+

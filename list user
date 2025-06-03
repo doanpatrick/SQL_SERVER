@@ -275,3 +275,48 @@ WHERE r.wait_type = 'RESOURCE_SEMAPHORE'
 ORDER BY r.total_elapsed_time DESC;
 
 
+Analyse des top wait
+
+🔍 Analyse des principaux wait_type que tu observes :
+
+🔵 1. RESOURCE_SEMAPHORE — ⚠️ Mémoire insuffisante pour exécuter certaines requêtes
+	•	Cause fréquente : requêtes qui demandent beaucoup de mémoire (ex : hash join, sort)
+	•	Solution :
+	•	Optimiser les requêtes avec plans complexes
+	•	Ajouter des indexes ou réécrire les jointures
+	•	Vérifier la configuration mémoire de l’instance
+	•	Revoir les statistiques
+
+⸻
+
+🔵 2. CXPACKET et CXCONSUMER — ⚠️ Problème de parallélisme
+	•	Signifie : certaines requêtes parallèles ont une exécution déséquilibrée
+	•	Causes :
+	•	Requêtes massives sur des tables non indexées
+	•	Plans de requêtes avec Parallelism (Repartition Streams)
+	•	Solution :
+	•	Ajuster le cost threshold for parallelism (ex : 50 au lieu de 5 par défaut)
+	•	Analyser les requêtes avec MAXDOP trop élevé
+	•	Ajouter ou ajuster les indexes
+
+⸻
+
+🔵 3. PAGEIOLATCH_SH — ⚠️ Attente de lecture disque
+	•	Indique : SQL Server attend des pages lues depuis disque (pas en cache)
+	•	Cause probable :
+	•	Pas assez de RAM → SQL lit depuis le disque
+	•	Requêtes qui font de gros table scans
+	•	Solution :
+	•	Ajouter de la mémoire (RAM)
+	•	Mettre en cache les objets critiques
+	•	Réduire les scans via indexes ou réécriture
+
+⸻
+
+🔵 4. SOS_SCHEDULER_YIELD — ⚠️ CPU sous tension
+	•	Signifie : SQL Server rend volontairement la main au planificateur car d’autres threads ont besoin du CPU
+	•	C’est normal en petite dose, inquiétant si dans le top 3
+	•	Solution :
+	•	Analyser les requêtes qui consomment beaucoup de CPU
+	•	Mettre en place un monitoring de CPU% par requête via Query Store
+

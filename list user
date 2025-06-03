@@ -230,17 +230,22 @@ FROM sys.dm_io_virtual_file_stats(NULL, NULL) vfs
 JOIN sys.master_files mf ON vfs.database_id = mf.database_id AND vfs.file_id = mf.file_id
 ORDER BY total_stall_ms DESC;
 
--- 6. Indexes avec plus de lecture que d’écriture (potentiel problème IO ou manque d’index)
+-- Indexes très lus (potentiellement surchargés ou à optimiser)
 SELECT 
-    DB_NAME(database_id) AS database_name,
-    OBJECT_NAME(i.object_id, database_id) AS object_name,
+    DB_NAME(s.database_id) AS database_name,
+    OBJECT_NAME(s.object_id, s.database_id) AS object_name,
     i.name AS index_name,
-    user_seeks, user_scans, user_lookups, user_updates,
-    (user_seeks + user_scans + user_lookups) AS total_reads
-FROM sys.dm_db_index_usage_stats i
-WHERE database_id = DB_ID()
+    s.user_seeks, 
+    s.user_scans, 
+    s.user_lookups, 
+    s.user_updates,
+    (s.user_seeks + s.user_scans + s.user_lookups) AS total_reads
+FROM sys.dm_db_index_usage_stats s
+JOIN sys.indexes i 
+    ON s.object_id = i.object_id 
+    AND s.index_id = i.index_id 
+    AND s.database_id = DB_ID()  -- facultatif : limite à la DB courante
+WHERE s.database_id = DB_ID()
 ORDER BY total_reads DESC;
-
-
 
 

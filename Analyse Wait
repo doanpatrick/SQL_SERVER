@@ -1,0 +1,78 @@
+Analyse des top wait
+
+🔍 Analyse des principaux wait_type que tu observes :
+
+🔵 1. RESOURCE_SEMAPHORE — ⚠️ Mémoire insuffisante pour exécuter certaines requêtes
+	•	Cause fréquente : requêtes qui demandent beaucoup de mémoire (ex : hash join, sort)
+	•	Solution :
+	•	Optimiser les requêtes avec plans complexes
+	•	Ajouter des indexes ou réécrire les jointures
+	•	Vérifier la configuration mémoire de l’instance
+	•	Revoir les statistiques
+
+⸻
+
+🔵 2. CXPACKET et CXCONSUMER — ⚠️ Problème de parallélisme
+	•	Signifie : certaines requêtes parallèles ont une exécution déséquilibrée
+	•	Causes :
+	•	Requêtes massives sur des tables non indexées
+	•	Plans de requêtes avec Parallelism (Repartition Streams)
+	•	Solution :
+	•	Ajuster le cost threshold for parallelism (ex : 50 au lieu de 5 par défaut)
+	•	Analyser les requêtes avec MAXDOP trop élevé
+	•	Ajouter ou ajuster les indexes
+
+⸻
+
+🔵 3. PAGEIOLATCH_SH — ⚠️ Attente de lecture disque
+	•	Indique : SQL Server attend des pages lues depuis disque (pas en cache)
+	•	Cause probable :
+	•	Pas assez de RAM → SQL lit depuis le disque
+	•	Requêtes qui font de gros table scans
+	•	Solution :
+	•	Ajouter de la mémoire (RAM)
+	•	Mettre en cache les objets critiques
+	•	Réduire les scans via indexes ou réécriture
+
+⸻
+
+🔵 4. SOS_SCHEDULER_YIELD — ⚠️ CPU sous tension
+	•	Signifie : SQL Server rend volontairement la main au planificateur car d’autres threads ont besoin du CPU
+	•	C’est normal en petite dose, inquiétant si dans le top 3
+	•	Solution :
+	•	Analyser les requêtes qui consomment beaucoup de CPU
+	•	Mettre en place un monitoring de CPU% par requête via Query Store
+
+
+
+Explication des principaux wait_type dans ta requête :
+	1.	SOS_WORK_DISPATCHER
+Attente sur le planificateur de tâches internes (souvent bénin, lié aux threads internes).
+	2.	CXCONSUMER
+Attente associée au Parallelism, souvent normale sauf si combinée avec des CXPACKET anormaux. Ne pas investiguer seul.
+	3.	CXPACKET
+Très courant dans les systèmes avec exécution parallèle. Peut indiquer un problème de configuration ou des plans d’exécution non optimaux.
+	4.	RESOURCE_SEMAPHORE
+Attente de mémoire pour exécuter une requête. Indique souvent un besoin d’optimisation ou un manque de RAM.
+	5.	PAGEIOLATCH_SH
+Attente de lecture de page depuis le disque. Peut indiquer un problème d’I/O disque ou des requêtes non optimisées.
+	6.	SOS_SCHEDULER_YIELD
+Thread volontairement mis en attente pour laisser le CPU à d’autres threads. Fréquent mais en excès, peut indiquer une pression CPU.
+	7.	HADR_FILESTREAM_IOMGR_IOCOMPLETION
+Spécifique aux environnements AlwaysOn/Availability Groups utilisant FILESTREAM.
+	8.	SP_SERVER_DIAGNOSTICS_SLEEP
+Attente interne du thread de diagnostic. Normal, pas un problème.
+	9.	DIRTY_PAGE_POLL
+Tâche système surveillant les pages mémoire modifiées. Normalement bénin.
+	10.	QDS_PERSIST_TASK_MAIN_LOOP_SLEEP
+Relatif au Query Store. Bénin sauf si anormalement élevé.
+	11.	ASYNC_NETWORK_IO
+Le serveur attend que le client consomme les résultats. Peut indiquer une application lente à lire les données.
+	12.	IO_COMPLETION, PAGEIOLATCH_EX
+Délai d’attente sur des I/O disques. Si fréquent, vérifier les performances de stockage.
+	13.	LATCH_EX
+Attente sur des verrous internes de mémoire. Si élevé, possible contention interne.
+	14.	PREEMPTIVE_XE_DISPATCHER
+Utilisation du mode préemptif pour certaines tâches système. Bénin sauf s’il bloque d’autres processus.
+	15.	BROKER_EVENTHANDLER, ASYNC_TASK_QUEUE
+Lié au Service Broker. Normal si utilisé.

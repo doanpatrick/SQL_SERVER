@@ -250,6 +250,28 @@ ORDER BY total_reads DESC;
 
 
 
+SELECT
+    r.session_id,
+    r.status,
+    r.wait_type,
+    r.wait_time,
+    r.command,
+    r.cpu_time,
+    r.total_elapsed_time,
+    r.logical_reads,
+    r.writes,
+    r.row_count,
+    t.text AS sql_text,
+    qp.query_plan
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_query_memory_grants mg ON r.session_id = mg.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) qp
+WHERE r.wait_type = 'RESOURCE_SEMAPHORE'
+ORDER BY r.total_elapsed_time DESC;
+
+
+
 analyse attente memoire
 
 

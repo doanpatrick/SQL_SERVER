@@ -340,3 +340,37 @@ Analyse des top wait
 	•	Analyser les requêtes qui consomment beaucoup de CPU
 	•	Mettre en place un monitoring de CPU% par requête via Query Store
 
+
+
+Explication des principaux wait_type dans ta requête :
+	1.	SOS_WORK_DISPATCHER
+Attente sur le planificateur de tâches internes (souvent bénin, lié aux threads internes).
+	2.	CXCONSUMER
+Attente associée au Parallelism, souvent normale sauf si combinée avec des CXPACKET anormaux. Ne pas investiguer seul.
+	3.	CXPACKET
+Très courant dans les systèmes avec exécution parallèle. Peut indiquer un problème de configuration ou des plans d’exécution non optimaux.
+	4.	RESOURCE_SEMAPHORE
+Attente de mémoire pour exécuter une requête. Indique souvent un besoin d’optimisation ou un manque de RAM.
+	5.	PAGEIOLATCH_SH
+Attente de lecture de page depuis le disque. Peut indiquer un problème d’I/O disque ou des requêtes non optimisées.
+	6.	SOS_SCHEDULER_YIELD
+Thread volontairement mis en attente pour laisser le CPU à d’autres threads. Fréquent mais en excès, peut indiquer une pression CPU.
+	7.	HADR_FILESTREAM_IOMGR_IOCOMPLETION
+Spécifique aux environnements AlwaysOn/Availability Groups utilisant FILESTREAM.
+	8.	SP_SERVER_DIAGNOSTICS_SLEEP
+Attente interne du thread de diagnostic. Normal, pas un problème.
+	9.	DIRTY_PAGE_POLL
+Tâche système surveillant les pages mémoire modifiées. Normalement bénin.
+	10.	QDS_PERSIST_TASK_MAIN_LOOP_SLEEP
+Relatif au Query Store. Bénin sauf si anormalement élevé.
+	11.	ASYNC_NETWORK_IO
+Le serveur attend que le client consomme les résultats. Peut indiquer une application lente à lire les données.
+	12.	IO_COMPLETION, PAGEIOLATCH_EX
+Délai d’attente sur des I/O disques. Si fréquent, vérifier les performances de stockage.
+	13.	LATCH_EX
+Attente sur des verrous internes de mémoire. Si élevé, possible contention interne.
+	14.	PREEMPTIVE_XE_DISPATCHER
+Utilisation du mode préemptif pour certaines tâches système. Bénin sauf s’il bloque d’autres processus.
+	15.	BROKER_EVENTHANDLER, ASYNC_TASK_QUEUE
+Lié au Service Broker. Normal si utilisé.
+

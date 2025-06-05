@@ -63,5 +63,25 @@ SELECT * FROM #UserMappings ORDER BY DatabaseName;
 DROP TABLE #UserMappings;
 
 
+taux d'occupation filegroup
 
+USE [NomDeVotreBase]; -- Remplacez par le nom de votre base de données
+GO
+
+SELECT 
+    fg.name AS FilegroupName,
+    df.name AS FileName,
+    df.physical_name,
+    df.size * 8.0 / 1024 AS SizeMB,
+    FILEPROPERTY(df.name, 'SpaceUsed') * 8.0 / 1024 AS UsedSpaceMB,
+    CAST(
+        (FILEPROPERTY(df.name, 'SpaceUsed') * 1.0) / NULLIF(df.size, 0) * 100 
+        AS DECIMAL(5,2)
+    ) AS UsagePercent
+FROM 
+    sys.filegroups AS fg
+JOIN 
+    sys.database_files AS df ON fg.data_space_id = df.data_space_id
+WHERE 
+    df.type_desc = 'ROWS';
 

@@ -1,5 +1,55 @@
 
 
+analyse utilisation des fichiers en IO
+
+Tu identifies rapidement les fichiers les plus lents (ceux tout en haut).
+	•	Si tempdb ou une base critique est en haut de liste avec des temps >10ms en moyenne, c’est un signal d’alerte.
+
+SELECT 
+    DB_NAME(vfs.database_id) AS database_name,
+    mf.name AS file_name,
+    mf.type_desc AS file_type,
+    vfs.num_of_reads,
+    vfs.num_of_writes,
+    vfs.io_stall_read_ms,
+    vfs.io_stall_write_ms,
+    vfs.io_stall_read_ms + vfs.io_stall_write_ms AS total_stall_ms,
+    CASE 
+        WHEN vfs.num_of_reads = 0 THEN NULL
+        ELSE CONVERT(DECIMAL(10,2), vfs.io_stall_read_ms * 1.0 / vfs.num_of_reads)
+    END AS avg_read_latency_ms,
+    CASE 
+        WHEN vfs.num_of_writes = 0 THEN NULL
+        ELSE CONVERT(DECIMAL(10,2), vfs.io_stall_write_ms * 1.0 / vfs.num_of_writes)
+    END AS avg_write_latency_ms,
+    CASE 
+        WHEN (vfs.num_of_reads + vfs.num_of_writes) = 0 THEN NULL
+        ELSE CONVERT(DECIMAL(10,2), (vfs.io_stall_read_ms + vfs.io_stall_write_ms) * 1.0 / (vfs.num_of_reads + vfs.num_of_writes))
+    END AS avg_io_latency_ms
+FROM 
+    sys.dm_io_virtual_file_stats(NULL, NULL) AS vfs
+JOIN 
+    sys.master_files AS mf 
+    ON vfs.database_id = mf.database_id AND vfs.file_id = mf.file_id
+ORDER BY 
+    avg_io_latency_ms DESC;
+
+
+Colonne
+Description
+avg_read_latency_ms
+Temps moyen d’attente pour une lecture.
+avg_write_latency_ms
+Temps moyen d’attente pour une écriture.
+avg_io_latency_ms
+Temps moyen global par opération I/O (lecture ou écriture).
+total_stall_ms
+Temps total passé en attente (latence cumulée).
+
+
+
+
+
 DECLARE @LoginName SYSNAME = 'oddo\xdat_x_dbm_1';  
 
 

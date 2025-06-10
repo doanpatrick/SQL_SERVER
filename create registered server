@@ -1,1 +1,65 @@
-1
+fichier a crée liste serveur
+
+ENV;SERVEUR
+adat;SQL01
+idat;SQL02
+sdat;SQL03\INSTANCE1
+xdat;192.168.1.10
+ydat;SQL04
+zdat;SQL05
+
+
+# Paramètres
+$inputFile = "C:\chemin\vers\serveurs.txt"
+$outputFile = "C:\chemin\vers\ServeursMultiEnv.regsrvr"
+
+# Créer la structure XML de base
+$xml = New-Object System.Xml.XmlDocument
+
+$declaration = $xml.CreateXmlDeclaration("1.0", "utf-8", $null)
+$xml.AppendChild($declaration) | Out-Null
+
+$root = $xml.CreateElement("RegisteredServers")
+$root.SetAttribute("RegisteredServersStoreFormatVersion", "1")
+$xml.AppendChild($root) | Out-Null
+
+# Groupe racine (Database Engine)
+$serverType = $xml.CreateElement("ServerType")
+$serverType.SetAttribute("ID", "8C91A3A4-5A91-4FAB-8E25-2877A6C0FDC8")  # Database Engine ID
+$serverType.SetAttribute("Name", "Database Engine")
+$root.AppendChild($serverType) | Out-Null
+
+# Dictionnaire pour stocker les groupes déjà créés
+$groupDict = @{}
+
+# Lire les lignes du fichier
+Get-Content $inputFile | ForEach-Object {
+    $line = $_.Trim()
+    if ($line -match "^\s*([^;]+);(.+)$") {
+        $env = $matches[1].Trim().ToLower()
+        $serverName = $matches[2].Trim()
+
+        # Créer le groupe s'il n'existe pas encore
+        if (-not $groupDict.ContainsKey($env)) {
+            $group = $xml.CreateElement("ServerGroup")
+            $group.SetAttribute("Name", $env)
+            $group.SetAttribute("Description", "")
+            $serverType.AppendChild($group) | Out-Null
+            $groupDict[$env] = $group
+        }
+
+        # Créer le noeud serveur
+        $regServer = $xml.CreateElement("RegisteredServer")
+        $regServer.SetAttribute("Name", $serverName)
+        $regServer.SetAttribute("ServerName", $serverName)
+        $regServer.SetAttribute("UseCustomConnectionColor", "false")
+        $regServer.SetAttribute("AuthenticationType", "0")  # Windows Auth
+        $regServer.SetAttribute("CredentialPersistenceType", "0")
+        $groupDict[$env].AppendChild($regServer) | Out-Null
+    }
+}
+
+# Sauvegarde
+$xml.Save($outputFile)
+
+Write-Host "✅ Fichier .regsrvr généré avec les groupes d’environnements : $outputFile"

@@ -135,3 +135,81 @@ JOIN
 WHERE 
     df.type_desc = 'ROWS';
 
+
+
+
+
+
+
+
+Voici un script PowerShell qui :
+	1.	Lit une liste d’instances SQL Server depuis un fichier texte ou une variable.
+	2.	Se connecte à chaque instance.
+	3.	Supprime un login Active Directory spécifique, s’il existe.
+
+⸻
+
+🔧 Prérequis
+	•	PowerShell avec le module SqlServer installé (Install-Module SqlServer si besoin).
+	•	Droits suffisants pour supprimer des logins sur les instances SQL Server.
+	•	Le compte doit être un login sur chaque instance avec le droit ALTER ANY LOGIN.
+
+
+# Spécifiez ici le nom du login AD à supprimer
+$adLoginToRemove = "DOMAIN\\nom.utilisateur"
+
+# Liste des instances SQL Server (vous pouvez aussi la charger depuis un fichier)
+$sqlInstances = @(
+    "SERVEUR1\INSTANCE1",
+    "SERVEUR2",
+    "SERVEUR3\INSTANCE2"
+)
+
+# Parcours des instances
+foreach ($instance in $sqlInstances) {
+    Write-Host "`nConnexion à l'instance $instance..."
+
+    try {
+        # Vérifie si le login existe
+        $checkLoginQuery = @"
+IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$adLoginToRemove')
+    SELECT 1 AS LoginExists
+ELSE
+    SELECT 0 AS LoginExists
+"@
+
+        $loginExists = Invoke-Sqlcmd -ServerInstance $instance -Query $checkLoginQuery
+
+        if ($loginExists.LoginExists -eq 1) {
+            Write-Host "→ Le login '$adLoginToRemove' existe. Suppression en cours..."
+
+            $dropLoginQuery = "DROP LOGIN [$adLoginToRemove]"
+
+            Invoke-Sqlcmd -ServerInstance $instance -Query $dropLoginQuery
+            Write-Host "✔️ Login supprimé avec succès de $instance"
+        } else {
+            Write-Host "ℹ️ Le login '$adLoginToRemove' n'existe pas sur $instance"
+        }
+    }
+    catch {
+        Write-Warning "⚠️ Erreur lors du traitement de l'instance $instance : $_"
+    }
+}
+
+
+
+Notes
+	•	Si tu veux lire les instances depuis un fichier texte (par ex. instances.txt), remplace cette ligne :
+
+
+$sqlInstances = @(
+
+par
+
+$sqlInstances = Get-Content -Path "C:\chemin\vers\instances.txt"
+
+
+	•	Le login doit être au format DOMAIN\utilisateur.
+
+
+

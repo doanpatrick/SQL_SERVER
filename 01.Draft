@@ -213,3 +213,106 @@ $sqlInstances = Get-Content -Path "C:\chemin\vers\instances.txt"
 
 
 
+
+
+
+Pour exécuter nimporte quel query sur une liste de server
+
+Script PowerShell : exécution de requête sur toutes les instances
+
+# Chemin vers le fichier contenant la liste des instances SQL Server
+$instanceListPath = "C:\chemin\vers\instances.txt"
+
+# Charger les instances SQL
+$sqlInstances = Get-Content -Path $instanceListPath
+
+# Spécifiez ici votre requête SQL à exécuter
+$queryToRun = @"
+-- Exemple : afficher les bases de données
+SELECT name, state_desc FROM sys.databases
+"@
+
+# Boucle sur chaque instance
+foreach ($instance in $sqlInstances) {
+    Write-Host "`nConnexion à l'instance $instance..."
+
+    try {
+        # Exécution de la requête
+        $results = Invoke-Sqlcmd -ServerInstance $instance -Query $queryToRun -ErrorAction Stop
+
+        if ($results) {
+            Write-Host "✔️ Résultats depuis $instance :"
+            $results | Format-Table -AutoSize
+        } else {
+            Write-Host "ℹ️ Aucune donnée retournée par $instance"
+        }
+    }
+    catch {
+        Write-Warning "⚠️ Erreur sur l'instance $instance : $_"
+    }
+}
+
+
+
+
+pour sauvegarder le fichier
+
+$results | Export-Csv -Path "C:\temp\resultats_$($instance -replace '\\', '_').csv" -NoTypeInformation
+
+
+exemple de query a changer
+
+$queryToRun = "SELECT @@VERSION AS Version"
+
+
+
+
+
+
+autre script pour supprimer les login
+
+
+# Chemin vers le fichier contenant la liste des instances SQL Server
+$instanceListPath = "C:\chemin\vers\instances.txt"
+
+# Charger les instances SQL
+$sqlInstances = Get-Content -Path $instanceListPath
+
+# Login AD à supprimer (échappé correctement pour T-SQL)
+$loginToDrop = "DOMAIN\\nom.utilisateur"
+
+# Requête complète : vérifie d'abord si le login existe avant de le supprimer
+$queryToRun = @"
+IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$loginToDrop')
+BEGIN
+    DROP LOGIN [$loginToDrop]
+    PRINT 'Login supprimé.'
+END
+ELSE
+BEGIN
+    PRINT 'Login non trouvé.'
+END
+"@
+
+# Exécution sur chaque instance
+foreach ($instance in $sqlInstances) {
+    Write-Host "`nConnexion à $instance..."
+
+    try {
+        $result = Invoke-Sqlcmd -ServerInstance $instance -Query $queryToRun -ErrorAction Stop
+        Write-Host "✔️ $instance :"
+        $result | ForEach-Object { Write-Host $_ }
+    }
+    catch {
+        Write-Warning "⚠️ Erreur sur $instance : $_"
+    }
+}
+
+Ce que fait ce script
+	•	✅ Vérifie l’existence du login sur chaque instance.
+	•	✅ Le supprime uniquement s’il est présent.
+	•	✅ Affiche un message clair (Login supprimé. ou Login non trouvé.).
+	•	❌ Évite les erreurs T-SQL si le login est absent.
+
+
+

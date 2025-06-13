@@ -337,3 +337,22 @@ ORDER BY r.memory_usage DESC
 
 WHERE s.session_id = 143,
 
+
+
+ voir si un plan d'exécution forcé a echoué
+
+SELECT 
+    qsp.query_id,
+    qsp.plan_id,
+    qsp.is_forced_plan,
+    qsp.is_forced_plan_failed,
+    qsqt.query_sql_text,
+    qsp.last_execution_time
+FROM sys.query_store_plan qsp
+JOIN sys.query_store_query qsq ON qsp.query_id = qsq.query_id
+JOIN sys.query_store_query_text qsqt ON qsq.query_text_id = qsqt.query_text_id
+WHERE qsp.is_forced_plan = 1;
+
+Si is_forced_plan_failed = 1 → le plan a échoué.
+
+

@@ -356,3 +356,96 @@ WHERE qsp.is_forced_plan = 1;
 Si is_forced_plan_failed = 1 → le plan a échoué.
 
 
+
+
+
+
+
+
+
+
+
+
+-- 1. Vérification des fonctionnalités Enterprise utilisées (globales)
+SELECT 
+    feature_name,
+    feature_id,
+    usage_count,
+    last_usage_time
+FROM 
+    sys.dm_db_persisted_sku_features;
+
+-- 2. Bases de données utilisant TDE (Transparent Data Encryption)
+SELECT 
+    name AS DatabaseName,
+    is_encrypted
+FROM 
+    sys.databases
+WHERE 
+    is_encrypted = 1;
+
+-- 3. Index Columnstore (Enterprise uniquement dans certaines versions)
+EXEC sp_MSforeachdb '
+USE [?];
+SELECT 
+    DB_NAME() AS DatabaseName,
+    OBJECT_NAME(object_id) AS TableName,
+    name AS IndexName,
+    type_desc
+FROM 
+    sys.indexes 
+WHERE 
+    type_desc LIKE ''%COLUMNSTORE%''';
+
+-- 4. Compression de données utilisée sur les index
+EXEC sp_MSforeachdb '
+USE [?];
+SELECT 
+    DB_NAME() AS DatabaseName,
+    OBJECT_NAME(i.object_id) AS TableName,
+    i.name AS IndexName,
+    p.data_compression_desc
+FROM 
+    sys.partitions p
+JOIN 
+    sys.indexes i ON p.object_id = i.object_id AND p.index_id = p.index_id
+WHERE 
+    p.data_compression <> 0';
+
+-- 5. Tables partitionnées
+EXEC sp_MSforeachdb '
+USE [?];
+SELECT 
+    DB_NAME() AS DatabaseName,
+    name AS TableName
+FROM 
+    sys.tables 
+WHERE 
+    is_ms_shipped = 0 AND is_partitioned = 1';
+
+-- 6. In-Memory OLTP utilisé
+EXEC sp_MSforeachdb '
+USE [?];
+IF EXISTS (SELECT * FROM sys.tables WHERE is_memory_optimized = 1)
+BEGIN
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        name AS TableName,
+        durability_desc
+    FROM 
+        sys.memory_optimized_tables_internal_attributes;
+END';
+
+-- 7. Change Data Capture (CDC) utilisé
+EXEC sp_MSforeachdb '
+USE [?];
+IF EXISTS (SELECT * FROM sys.tables WHERE is_tracked_by_cdc = 1)
+BEGIN
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        name AS TableName
+    FROM 
+        sys.tables 
+    WHERE 
+        is_tracked_by_cdc = 1;
+END';

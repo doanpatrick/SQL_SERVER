@@ -449,3 +449,114 @@ BEGIN
     WHERE 
         is_tracked_by_cdc = 1;
 END';
+
+
+
+
+
+
+
+-- 1. Fonctionnalités Enterprise détectées par SQL Server
+SELECT 
+    feature_name,
+    feature_id
+FROM 
+    sys.dm_db_persisted_sku_features;
+
+-- 2. Bases avec TDE activé (Transparent Data Encryption)
+SELECT 
+    name AS DatabaseName,
+    is_encrypted
+FROM 
+    sys.databases
+WHERE 
+    is_encrypted = 1;
+
+-- 3. Recherche d’index COLUMNSTORE
+EXEC sp_MSforeachdb '
+USE [?];
+IF DB_ID(''?'') NOT IN (1,2,3,4)
+BEGIN
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        OBJECT_NAME(object_id) AS TableName,
+        name AS IndexName,
+        type_desc
+    FROM 
+        sys.indexes
+    WHERE 
+        type_desc LIKE ''%COLUMNSTORE%''
+        AND OBJECTPROPERTY(object_id, ''IsMsShipped'') = 0;
+END
+';
+
+-- 4. Vérification de la compression utilisée
+EXEC sp_MSforeachdb '
+USE [?];
+IF DB_ID(''?'') NOT IN (1,2,3,4)
+BEGIN
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        OBJECT_NAME(p.object_id) AS TableName,
+        i.name AS IndexName,
+        p.data_compression_desc
+    FROM 
+        sys.partitions p
+    JOIN 
+        sys.indexes i ON p.object_id = i.object_id AND p.index_id = i.index_id
+    WHERE 
+        p.data_compression IN (1, 2) -- 1 = ROW, 2 = PAGE
+        AND OBJECTPROPERTY(p.object_id, ''IsMsShipped'') = 0;
+END
+';
+
+-- 5. Tables partitionnées
+EXEC sp_MSforeachdb '
+USE [?];
+IF DB_ID(''?'') NOT IN (1,2,3,4)
+BEGIN
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        name AS TableName
+    FROM 
+        sys.tables
+    WHERE 
+        is_partitioned = 1
+        AND is_ms_shipped = 0;
+END
+';
+
+-- 6. In-Memory OLTP (Memory-Optimized Tables)
+EXEC sp_MSforeachdb '
+USE [?];
+IF EXISTS (
+    SELECT 1 FROM sys.tables WHERE is_memory_optimized = 1
+)
+BEGIN
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        name AS TableName
+    FROM 
+        sys.tables
+    WHERE 
+        is_memory_optimized = 1;
+END
+';
+
+-- 7. CDC activé (Change Data Capture)
+EXEC sp_MSforeachdb '
+USE [?];
+IF EXISTS (
+    SELECT 1 FROM sys.tables WHERE is_tracked_by_cdc = 1
+)
+BEGIN
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        name AS TableName
+    FROM 
+        sys.tables
+    WHERE 
+        is_tracked_by_cdc = 1;
+END
+';
+

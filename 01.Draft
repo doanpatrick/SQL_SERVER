@@ -560,3 +560,31 @@ BEGIN
 END
 ';
 
+
+
+
+voir lez objets partitioner 
+
+EXEC sp_MSforeachdb '
+USE [?];
+IF DB_ID(''?'') NOT IN (1,2,3,4)
+BEGIN
+    SELECT 
+        DB_NAME() AS DatabaseName,
+        t.name AS TableName,
+        i.name AS IndexName,
+        ps.name AS PartitionScheme
+    FROM 
+        sys.indexes i
+    INNER JOIN 
+        sys.tables t ON i.object_id = t.object_id
+    INNER JOIN 
+        sys.data_spaces ds ON i.data_space_id = ds.data_space_id
+    LEFT JOIN 
+        sys.partition_schemes ps ON ds.data_space_id = ps.data_space_id
+    WHERE 
+        ps.name IS NOT NULL
+        AND t.is_ms_shipped = 0;
+END
+';
+

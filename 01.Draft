@@ -588,3 +588,18 @@ BEGIN
 END
 ';
 
+ voir la taille des fichiers bdd
+
+SELECT 
+    db.name AS database_name,
+    mf.name AS logical_name,
+    mf.physical_name,
+    mf.type_desc,
+    CAST(mf.size * 8.0 / 1024 / 1024 AS DECIMAL(10,2)) AS size_GB
+FROM 
+    sys.master_files mf
+JOIN 
+    sys.databases db ON db.database_id = mf.database_id
+ORDER BY 
+    db.name, mf.type_desc;
+

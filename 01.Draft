@@ -603,3 +603,92 @@ JOIN
 ORDER BY 
     db.name, mf.type_desc;
 
+
+
+
+ résumé du tde
+
+-- Liste des bases utilisant TDE
+SELECT 
+    name AS DatabaseName,
+    is_encrypted
+INTO #EncryptedDatabases
+FROM 
+    sys.databases
+WHERE 
+    is_encrypted = 1;
+
+-- Afficher les certificats et types de chiffrement utilisés pour chaque base
+DECLARE @dbName NVARCHAR(128);
+DECLARE db_cursor CURSOR FOR
+SELECT name FROM #EncryptedDatabases;
+
+CREATE TABLE #TDE_Details (
+    DatabaseName NVARCHAR(128),
+    EncryptorType NVARCHAR(50),
+    Thumbprint VARBINARY(64),
+    CertificateName NVARCHAR(128)
+);
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @dbName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    DECLARE @sql NVARCHAR(MAX);
+    SET @sql = '
+    USE [' + @dbName + '];
+    INSERT INTO #TDE_Details (DatabaseName, EncryptorType, Thumbprint, CertificateName)
+    SELECT 
+        ''' + @dbName + ''' AS DatabaseName,
+        dek.encryptor_type,
+        dek.encryptor_thumbprint,
+        cert.name
+    FROM 
+        sys.dm_database_encryption_keys dek
+    LEFT JOIN 
+        master.sys.certificates cert ON dek.encryptor_thumbprint = cert.thumbprint;
+    ';
+    EXEC (@sql);
+    FETCH NEXT FROM db_cursor INTO @dbName;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+-- Résultat combiné
+SELECT * FROM #TDE_Details;
+
+-- Liste des certificats dans master
+SELECT 
+    name AS CertificateName,
+    subject,
+    expiry_date,
+    thumbprint,
+    pvt_key_encryption_type_desc
+FROM 
+    master.sys.certificates
+WHERE 
+    issuer_name IS NOT NULL;
+
+-- Liste des clés asymétriques dans master
+SELECT 
+    name AS AsymKeyName,
+    key_algorithm,
+    key_length
+FROM 
+    master.sys.asymmetric_keys;
+
+-- Liste des clés symétriques dans master
+SELECT 
+    name AS SymKeyName,
+    algorithm_desc,
+    key_length
+FROM 
+    master.sys.symmetric_keys
+WHERE 
+    name != '##MS_DatabaseMasterKey##';
+
+-- Nettoyage
+DROP TABLE #EncryptedDatabases;
+DROP TABLE #TDE_Details;

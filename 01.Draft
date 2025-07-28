@@ -755,3 +755,29 @@ Cela donne le détail des erreurs si un mail échoue (problème SMTP, format, et
 
 
 
+✅ 1. Vérifier si le service Database Mail est en cours d’exécution
+
+EXEC msdb.dbo.sysmail_help_status_sp;
+
+
+✅ 2. Démarrer le service si nécessaire
+
+Si le statut est STOPPED, tu peux le démarrer manuellement :
+
+
+EXEC msdb.dbo.sysmail_start_sp;
+
+Et pour l’arrêter (utile en cas de maintenance) :
+
+EXEC msdb.dbo.sysmail_stop_sp;
+
+
+
+⸻
+
+✅ 4. Vérifier dans l’interface SSMS (GUI)
+	1.	Dans SSMS, ouvre “Management” > “Database Mail”.
+	2.	Clic droit > View Database Mail Log.
+	3.	Tu verras les erreurs (SMTP, authentification, format, etc.).
+
+

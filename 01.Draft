@@ -692,3 +692,66 @@ WHERE
 -- Nettoyage
 DROP TABLE #EncryptedDatabases;
 DROP TABLE #TDE_Details;
+
+
+
+*****************************************
+
+
+✅ 1. Requête pour voir les e-mails envoyés et leur statut
+
+SELECT 
+    mailitem.subject,
+    mailitem.recipients,
+    mailitem.body,
+    mailitem.send_request_date,
+    mailitem.sent_date,
+    mailitem.last_mod_date,
+    mailitem.sent_account_id,
+    CASE
+        WHEN mailitem.sent_status = 'sent' THEN '✅ Succès'
+        WHEN mailitem.sent_status = 'failed' THEN '❌ Échec'
+        ELSE mailitem.sent_status
+    END AS statut,
+    log.description AS erreur_message
+FROM msdb.dbo.sysmail_allitems AS mailitem
+LEFT JOIN msdb.dbo.sysmail_event_log AS log
+    ON mailitem.mailitem_id = log.mailitem_id
+ORDER BY mailitem.send_request_date DESC;
+
+
+
+2. Filtrer par statut si besoin
+	•	Pour voir uniquement les mails échoués :
+
+
+SELECT *
+FROM msdb.dbo.sysmail_faileditems
+ORDER BY send_request_date DESC;
+
+
+Pour voir uniquement les mails réussis :
+
+SELECT *
+FROM msdb.dbo.sysmail_sentitems
+ORDER BY send_request_date DESC;
+
+
+✅ 3. Voir les logs détaillés Database Mail
+
+
+SELECT *
+FROM msdb.dbo.sysmail_event_log
+ORDER BY log_date DESC;
+
+
+Cela donne le détail des erreurs si un mail échoue (problème SMTP, format, etc.).
+
+⸻
+
+📌 Remarques
+	•	Il faut que Database Mail soit activé (sysmail_enable) et configuré.
+	•	Les vues sont dans la base système msdb.
+
+
+

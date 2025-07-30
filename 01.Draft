@@ -1,3 +1,13 @@
+votre l'utilisateur de la mémoire 
+
+-- Utilisation mémoire par SQL Server
+SELECT 
+    physical_memory_in_use_kb / 1024 AS memory_used_MB,
+    large_page_allocations_kb / 1024 AS large_page_MB,
+    locked_page_allocations_kb / 1024 AS locked_page_MB,
+    total_virtual_address_space_kb / 1024 AS total_VAS_MB
+FROM sys.dm_os_process_memory;
+
 
 
 analyse utilisation des fichiers en IO

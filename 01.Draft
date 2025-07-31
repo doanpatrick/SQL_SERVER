@@ -1,3 +1,28 @@
+
+oracle session 
+
+avant d'exécuter vérifier
+
+SELECT sid, serial#, username, program, status
+FROM v$session 
+WHERE program = 'cfmarche.exe';
+
+BEGIN
+   FOR s IN (
+      SELECT sid, serial# 
+      FROM v$session 
+      WHERE program = 'cfmarche.exe'
+        AND status = 'ACTIVE'
+   )
+   LOOP
+      EXECUTE IMMEDIATE 'ALTER SYSTEM KILL SESSION ''' || s.sid || ',' || s.serial# || ''' IMMEDIATE';
+   END LOOP;
+END;
+/
+
+
+
+
 votre l'utilisateur de la mémoire 
 
 -- Utilisation mémoire par SQL Server

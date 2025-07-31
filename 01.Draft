@@ -22,6 +22,28 @@ END;
 
 
 
+ voir les session active avec la query
+
+
+SELECT 
+    s.sid,
+    s.serial#,
+    s.username,
+    s.osuser,
+    s.program,
+    s.status,
+    s.sql_id,
+    q.sql_text,
+    s.logon_time
+FROM 
+    v$session s
+LEFT JOIN 
+    v$sql q ON s.sql_id = q.sql_id
+WHERE 
+    s.status = 'ACTIVE'
+ORDER BY 
+    s.logon_time DESC;
+
 
 votre l'utilisateur de la mémoire 
 

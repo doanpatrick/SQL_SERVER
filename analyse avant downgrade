@@ -1,0 +1,86 @@
+-- ===============================================
+-- Vérification de compatibilité downgrade Enterprise vers Standard
+-- ===============================================
+
+-- 1. Transparent Data Encryption (TDE)
+PRINT '--- Bases chiffrées avec TDE ---';
+SELECT name AS database_name, is_encrypted
+FROM sys.databases
+WHERE is_encrypted = 1;
+
+-- 2. Data Compression (PAGE/ROW)
+PRINT '--- Tables ou indexes avec compression ---';
+SELECT OBJECT_SCHEMA_NAME(object_id) AS schema_name,
+       OBJECT_NAME(object_id) AS table_name,
+       index_id,
+       partition_number,
+       data_compression_desc
+FROM sys.partitions
+WHERE data_compression <> 0;
+
+-- 3. Indexed Views avec SCHEMABINDING
+PRINT '--- Vues avec SCHEMABINDING ---';
+SELECT name AS view_name, OBJECT_DEFINITION(object_id) AS definition
+FROM sys.views
+WHERE OBJECT_DEFINITION(object_id) LIKE '%WITH SCHEMABINDING%';
+
+-- 4. Partitioning
+PRINT '--- Utilisation de partitionnement ---';
+SELECT DISTINCT ps.name AS partition_scheme
+FROM sys.indexes i
+JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id;
+
+-- 5. FileTables
+PRINT '--- Tables utilisant FileTable ---';
+SELECT name AS table_name
+FROM sys.tables
+WHERE is_filetable = 1;
+
+-- 6. Always Encrypted Keys
+PRINT '--- Clés Always Encrypted ---';
+SELECT name AS column_encryption_key_name
+FROM sys.column_encryption_keys;
+
+-- 7. Server Audit
+PRINT '--- Server Audits définis ---';
+SELECT name AS audit_name, * FROM sys.server_audits;
+
+-- 8. CPU / RAM Info
+PRINT '--- Ressources matérielles ---';
+SELECT cpu_count, scheduler_count, physical_memory_kb / 1024 AS memory_MB
+FROM sys.dm_os_sys_info;
+
+-- 9. Linked Servers
+PRINT '--- Linked Servers configurés ---';
+SELECT name AS linked_server_name, data_source, provider_string, product
+FROM sys.servers
+WHERE is_linked = 1;
+
+-- 10. Vérification usage SSIS (packages dans msdb)
+PRINT '--- Packages SSIS dans MSDB ---';
+IF EXISTS (SELECT * FROM msdb.dbo.sysssispackages)
+BEGIN
+    SELECT name, description, createdate, folderid
+    FROM msdb.dbo.sysssispackages;
+END
+ELSE
+BEGIN
+    PRINT 'Aucun package SSIS trouvé dans MSDB.';
+END
+
+-- 11. Vérification SSRS (catalogue de rapports)
+PRINT '--- Présence éventuelle de SSRS ---';
+IF DB_ID('ReportServer') IS NOT NULL
+BEGIN
+    USE ReportServer;
+    SELECT TOP 10 Name, Path, CreatedDate
+    FROM dbo.Catalog;
+    USE master;
+END
+ELSE
+BEGIN
+    PRINT 'Base ReportServer non trouvée (SSRS non installé ou renommé).';
+END
+
+-- 12. Vérification SSAS (à faire manuellement via XMLA ou PowerShell)
+PRINT '--- SSAS non détectable en T-SQL. Vérifier via SQL Server Management Studio ou services Windows ---';

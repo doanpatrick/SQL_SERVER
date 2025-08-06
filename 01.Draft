@@ -13,7 +13,7 @@ FETCH NEXT FROM db_cursor INTO @dbName;
 WHILE @@FETCH_STATUS = 0
 BEGIN
     PRINT '===========================';
-    PRINT '🔍 Vérification dans : ' + @dbName;
+    PRINT ' Vérification dans : ' + @dbName;
     PRINT '===========================';
 
     SET @sql = '

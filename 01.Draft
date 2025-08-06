@@ -5,6 +5,45 @@ DECLARE db_cursor CURSOR FOR
 SELECT name
 FROM sys.databases
 WHERE state_desc = 'ONLINE'
+  AND name NOT IN ('tempdb'); -- tu peux en ajouter d'autres à exclure
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @dbName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    PRINT '===========================';
+    PRINT '🔍 Vérification dans : ' + @dbName;
+    PRINT '===========================';
+
+    SET @sql = '
+    USE [' + @dbName + '];
+    SELECT ''' + @dbName + ''' AS database_name, name AS partition_scheme_name
+    FROM sys.partition_schemes;
+    ';
+
+    EXEC sp_executesql @sql;
+
+    FETCH NEXT FROM db_cursor INTO @dbName;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+
+
+
+
+
+
+
+DECLARE @dbName NVARCHAR(128);
+DECLARE @sql NVARCHAR(MAX);
+
+DECLARE db_cursor CURSOR FOR
+SELECT name
+FROM sys.databases
+WHERE state_desc = 'ONLINE'
   AND name NOT IN ('tempdb'); -- facultatif : exclure tempdb
 
 OPEN db_cursor;

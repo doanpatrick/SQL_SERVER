@@ -1,4 +1,115 @@
 -- ===============================================
+-- Vérification downgrade Enterprise vers Standard - Toutes les bases
+-- ===============================================
+
+EXEC sp_msforeachdb N'
+IF DB_ID(''?'') IS NOT NULL AND DATABASEPROPERTYEX(''?'', ''Status'') = ''ONLINE''
+BEGIN
+    PRINT ''========================================================='';
+    PRINT ''--- Analyse de la base : [?] ---'';
+    PRINT ''========================================================='';
+
+    USE [?];
+
+    -- 1. TDE
+    PRINT ''--- TDE ---'';
+    SELECT DB_NAME() AS database_name, is_encrypted
+    FROM sys.databases
+    WHERE name = DB_NAME() AND is_encrypted = 1;
+
+    -- 2. Data Compression
+    PRINT ''--- Compression ---'';
+    SELECT OBJECT_SCHEMA_NAME(object_id) AS schema_name,
+           OBJECT_NAME(object_id) AS table_name,
+           index_id,
+           partition_number,
+           data_compression_desc
+    FROM sys.partitions
+    WHERE data_compression <> 0;
+
+    -- 3. Views avec SCHEMABINDING
+    PRINT ''--- Views avec SCHEMABINDING ---'';
+    SELECT name AS view_name, OBJECT_DEFINITION(object_id) AS definition
+    FROM sys.views
+    WHERE OBJECT_DEFINITION(object_id) LIKE ''%WITH SCHEMABINDING%'';
+
+    -- 4. Partitioning
+    PRINT ''--- Partitioning ---'';
+    SELECT DISTINCT ps.name AS partition_scheme
+    FROM sys.indexes i
+    JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id;
+
+    -- 5. FileTables
+    PRINT ''--- FileTables ---'';
+    SELECT name AS table_name
+    FROM sys.tables
+    WHERE is_filetable = 1;
+
+    -- 6. Always Encrypted
+    PRINT ''--- Always Encrypted Keys ---'';
+    IF OBJECT_ID(''sys.column_encryption_keys'') IS NOT NULL
+    BEGIN
+        SELECT name AS column_encryption_key_name
+        FROM sys.column_encryption_keys;
+    END
+
+    -- 10. SSIS (dans msdb)
+    IF DB_NAME() = ''msdb''
+    BEGIN
+        PRINT ''--- SSIS Packages ---'';
+        IF EXISTS (SELECT * FROM msdb.dbo.sysssispackages)
+        BEGIN
+            SELECT name, description, createdate, folderid
+            FROM msdb.dbo.sysssispackages;
+        END
+        ELSE
+        BEGIN
+            PRINT ''Aucun package SSIS trouvé dans MSDB.'';
+        END
+    END
+
+    -- 11. SSRS (ReportServer)
+    IF DB_NAME() = ''ReportServer''
+    BEGIN
+        PRINT ''--- SSRS Catalog ---'';
+        IF OBJECT_ID(''dbo.Catalog'') IS NOT NULL
+        BEGIN
+            SELECT TOP 10 Name, Path, CreatedDate
+            FROM dbo.Catalog;
+        END
+    END
+END
+';
+
+-- ===============================================
+-- Vérifications au niveau instance (hors base)
+-- ===============================================
+
+-- 7. Server Audit
+PRINT '--- Server Audits ---';
+SELECT name AS audit_name, * FROM sys.server_audits;
+
+-- 8. CPU / RAM Info
+PRINT '--- Ressources matérielles ---';
+SELECT cpu_count, scheduler_count, physical_memory_kb / 1024 AS memory_MB
+FROM sys.dm_os_sys_info;
+
+-- 9. Linked Servers
+PRINT '--- Linked Servers ---';
+SELECT name AS linked_server_name, data_source, provider_string, product
+FROM sys.servers
+WHERE is_linked = 1;
+
+-- 12. SSAS - À vérifier manuellement
+PRINT '--- SSAS non détectable en T-SQL. Vérifier via SSMS ou services Windows ---';
+
+
+
+
+
+************
+
+-- ===============================================
 -- Vérification de compatibilité downgrade Enterprise vers Standard
 -- ===============================================
 

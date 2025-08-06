@@ -1,3 +1,48 @@
+DECLARE @dbName NVARCHAR(128);
+DECLARE @sql NVARCHAR(MAX);
+
+DECLARE db_cursor CURSOR FOR
+SELECT name
+FROM sys.databases
+WHERE state_desc = 'ONLINE'
+  AND name NOT IN ('tempdb'); -- facultatif : exclure tempdb
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @dbName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    PRINT '====================================================';
+    PRINT '🔍 Vérification partitionnement dans la base : ' + @dbName;
+    PRINT '====================================================';
+
+    SET @sql = '
+    USE [' + @dbName + '];
+
+    SELECT 
+        DB_NAME() AS database_name,
+        o.name AS object_name,
+        o.type_desc,
+        i.name AS index_name,
+        ps.name AS partition_scheme
+    FROM sys.indexes i
+    JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+    JOIN sys.objects o ON i.object_id = o.object_id
+    WHERE o.is_ms_shipped = 0
+    ORDER BY o.name;
+    ';
+
+    EXEC sp_executesql @sql;
+
+    FETCH NEXT FROM db_cursor INTO @dbName;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+
+
+
 XDATLWBSA0001
 XDATLWCOG0003
 XDATLWESG0001

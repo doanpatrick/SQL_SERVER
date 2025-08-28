@@ -13,44 +13,54 @@ FETCH NEXT FROM db_cursor INTO @db;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
+    PRINT '=== Checking database: ' + @db;
+
     SET @sql = N'
     USE [' + QUOTENAME(@db) + N'];
 
-    DECLARE @User SYSNAME, @Login SYSNAME, @cmd NVARCHAR(MAX);
-
-    DECLARE orphan_cursor CURSOR FOR
+    -- Orphan users
     SELECT dp.name AS UserName,
-           sp.name AS LoginName
+           dp.sid  AS UserSID
+    INTO #tmpOrphans
     FROM sys.database_principals dp
     LEFT JOIN sys.server_principals sp ON dp.sid = sp.sid
     WHERE dp.type_desc = ''SQL_USER''
       AND dp.principal_id > 4
       AND sp.sid IS NULL;
 
-    OPEN orphan_cursor;
-    FETCH NEXT FROM orphan_cursor INTO @User, @Login;
+    DECLARE @User SYSNAME, @cmd NVARCHAR(MAX);
+
+    DECLARE c CURSOR FOR SELECT UserName FROM #tmpOrphans;
+    OPEN c;
+    FETCH NEXT FROM c INTO @User;
 
     WHILE @@FETCH_STATUS = 0
     BEGIN
-        -- Vérifier si un login du même nom existe
         IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = @User)
         BEGIN
             SET @cmd = N''ALTER USER ['' + @User + N''] WITH LOGIN = ['' + @User + N''];'';
-            PRINT ''[' + @db + '] Fixing orphan user: '' + @User + '' -> relink to login'';
+            PRINT ''[' + @db + '] Fixing orphan user: '' + @User;
             EXEC (@cmd);
         END
         ELSE
         BEGIN
             SET @cmd = N''DROP USER ['' + @User + N''];'';
             PRINT ''[' + @db + '] Removing orphan user: '' + @User;
-            EXEC (@cmd);
+            BEGIN TRY
+                EXEC (@cmd);
+            END TRY
+            BEGIN CATCH
+                PRINT ''[ERROR] Could not drop user '' + @User + '': '' + ERROR_MESSAGE();
+            END CATCH;
         END
 
-        FETCH NEXT FROM orphan_cursor INTO @User, @Login;
+        FETCH NEXT FROM c INTO @User;
     END
 
-    CLOSE orphan_cursor;
-    DEALLOCATE orphan_cursor;
+    CLOSE c;
+    DEALLOCATE c;
+
+    DROP TABLE #tmpOrphans;
     ';
 
     EXEC sys.sp_executesql @sql;
@@ -60,7 +70,6 @@ END
 
 CLOSE db_cursor;
 DEALLOCATE db_cursor;
-
 
 
 

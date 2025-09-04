@@ -1,30 +1,69 @@
 
+
+
+
+
 Trouver dans le journal des transactions qui a modifié récemment
 
--- 🔧 A adapter (base = contexte courant)
-DECLARE @schema sysname = N'dbo';
-DECLARE @table  sysname = N'TaTable';
 
-;WITH AU AS (
+-- >>> A D A P T E R <<<
+DECLARE @schema sysname = N'dbo';
+DECLARE @table  sysname = N'test1';
+
+;WITH AU AS (  -- toutes les AU liées à la table (row/LOB/overflow)
     SELECT au.allocation_unit_id
     FROM sys.partitions p
-    JOIN sys.allocation_units au ON au.container_id = p.hobt_id
+    JOIN sys.allocation_units au
+         ON au.container_id IN (p.hobt_id, p.partition_id)
     WHERE p.object_id = OBJECT_ID(QUOTENAME(@schema)+'.'+QUOTENAME(@table))
+),
+L AS (  -- journal brut
+    SELECT * FROM sys.fn_dblog(NULL,NULL)
+),
+O AS (  -- opérations qui touchent la table
+    SELECT
+        [Transaction ID]     AS tran_id,
+        [Operation],
+        [Context],
+        [AllocUnitId],
+        [AllocUnitName],
+        [Page ID],
+        [Slot ID]
+    FROM L
+    WHERE [AllocUnitId] IN (SELECT allocation_unit_id FROM AU)
+      AND [Operation] IN ('LOP_INSERT_ROWS','LOP_MODIFY_ROW','LOP_DELETE_ROWS')
+),
+B AS (  -- début de transaction
+    SELECT
+        [Transaction ID]                 AS tran_id,
+        CONVERT(datetime,[Begin Time])   AS begin_time,
+        [SPID]                           AS session_id,
+        SUSER_SNAME([Transaction SID])   AS login_name,
+        [Transaction Name]               AS tran_name
+    FROM L
+    WHERE [Operation] = 'LOP_BEGIN_XACT'
+),
+C AS (  -- commit (optionnel)
+    SELECT
+        [Transaction ID]                 AS tran_id,
+        CONVERT(datetime,[End Time])     AS end_time
+    FROM L
+    WHERE [Operation] = 'LOP_COMMIT_XACT'
 )
 SELECT TOP (200)
-    CONVERT(datetime,[Begin Time])     AS begin_time,
-    [Transaction ID],
-    SUSER_SNAME([Transaction SID])     AS login_name,
-    [SPID]                             AS session_id,
-    [Operation], [Context],
-    [AllocUnitName],
-    [Transaction Name],
-    [Page ID], [Slot ID]
-FROM sys.fn_dblog(NULL,NULL)
-WHERE [AllocUnitId] IN (SELECT allocation_unit_id FROM AU)
-  AND [Operation] IN ('LOP_INSERT_ROWS','LOP_MODIFY_ROW','LOP_DELETE_ROWS')
-ORDER BY [Begin Time] DESC;
-
+    B.begin_time,
+    C.end_time,
+    B.login_name,
+    B.session_id,
+    B.tran_name,
+    O.Operation, O.Context,
+    O.AllocUnitName,
+    O.[Page ID], O.[Slot ID],
+    O.tran_id
+FROM O
+LEFT JOIN B ON B.tran_id = O.tran_id
+LEFT JOIN C ON C.tran_id = O.tran_id
+ORDER BY B.begin_time DESC, O.tran_id, O.Operation;
 
 
 

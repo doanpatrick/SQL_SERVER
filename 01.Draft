@@ -1,3 +1,87 @@
+mettre un extended event en place
+
+1) Créer + démarrer la session (fichiers roulants)
+
+⚠️ Adapte le chemin D:\SqlAudit\ à un dossier existant où le compte SQL Server a les droits.
+
+USE [DB_LDW_FULL];
+GO
+DECLARE @schema sysname = N'dbo';
+DECLARE @table  sysname = N'INS_GDV_GeneriqueDevises';
+DECLARE @session sysname = N'WhoWrites_INS_GDV_GeneriqueDevises';
+
+-- Nettoyage si déjà existant
+IF EXISTS (SELECT 1 FROM sys.server_event_sessions WHERE name = @session)
+BEGIN
+  ALTER EVENT SESSION [WhoWrites_INS_GDV_GeneriqueDevises] ON SERVER STATE = STOP;
+  DROP EVENT SESSION [WhoWrites_INS_GDV_GeneriqueDevises] ON SERVER;
+END
+GO
+
+-- Création (fichier .xel avec rotation)
+CREATE EVENT SESSION [WhoWrites_INS_GDV_GeneriqueDevises] ON SERVER
+ADD EVENT sqlserver.sql_statement_completed(
+    ACTION(sqlserver.client_app_name,sqlserver.client_hostname,sqlserver.database_name,
+           sqlserver.session_id,sqlserver.username)
+    WHERE ( sqlserver.database_name = DB_NAME()
+         AND ( statement LIKE N'%INSERT%['+N'dbo'+'].['+N'INS_GDV_GeneriqueDevises'+']%'
+            OR statement LIKE N'%UPDATE%['+N'dbo'+'].['+N'INS_GDV_GeneriqueDevises'+']%'
+            OR statement LIKE N'%DELETE%['+N'dbo'+'].['+N'INS_GDV_GeneriqueDevises'+']%' ) )
+),
+ADD EVENT sqlserver.rpc_completed(
+    ACTION(sqlserver.client_app_name,sqlserver.client_hostname,sqlserver.database_name,
+           sqlserver.session_id,sqlserver.username)
+    WHERE ( sqlserver.database_name = DB_NAME()
+         AND statement LIKE N'%['+N'dbo'+'].['+N'INS_GDV_GeneriqueDevises'+']%' )
+),
+ADD EVENT sqlserver.sql_batch_completed(
+    ACTION(sqlserver.client_app_name,sqlserver.client_hostname,sqlserver.database_name,
+           sqlserver.session_id,sqlserver.username)
+    WHERE ( sqlserver.database_name = DB_NAME()
+         AND statement LIKE N'%['+N'dbo'+'].['+N'INS_GDV_GeneriqueDevises'+']%' )
+)
+ADD TARGET package0.event_file(
+    SET filename=N'D:\SqlAudit\WhoWrites_INS_GDV_GeneriqueDevises.xel',
+        max_file_size=(50),          -- 50 Mo par fichier
+        max_rollover_files=(10)      -- ~500 Mo au total
+);
+GO
+
+-- Démarrer
+ALTER EVENT SESSION [WhoWrites_INS_GDV_GeneriqueDevises] ON SERVER STATE = START;
+
+
+Tu peux laisser tourner en continu. Les fichiers se rouleront (ici 10 × 50 Mo max).
+
+⸻
+
+2) Lecture des fichiers .xel
+
+-- Adapter le chemin si besoin (utiliser le même dossier que ci-dessus)
+;WITH X AS (
+    SELECT CONVERT(xml, event_data) AS x
+    FROM sys.fn_xe_file_target_read_file(
+           N'D:\SqlAudit\WhoWrites_INS_GDV_GeneriqueDevises*.xel', NULL, NULL, NULL)
+)
+SELECT
+  DATEADD(minute, DATEDIFF(minute, GETUTCDATE(), SYSUTCDATETIME()),
+          X.x.value('(event/@timestamp)[1]','datetime2'))              AS event_time,
+  X.x.value('(event/action[@name="username"]/value)[1]','sysname')    AS login_name,
+  X.x.value('(event/action[@name="client_hostname"]/value)[1]','nvarchar(128)') AS host_name,
+  X.x.value('(event/action[@name="client_app_name"]/value)[1]','nvarchar(128)') AS app_name,
+  X.x.value('(event/action[@name="session_id"]/value)[1]','int')      AS session_id,
+  COALESCE(
+    X.x.value('(event/data[@name="statement"]/value)[1]','nvarchar(max)'),
+    X.x.value('(event/data[@name="batch_text"]/value)[1]','nvarchar(max)')
+  ) AS sql_text,
+  X.x.value('(event/@name)[1]','nvarchar(64)')                         AS event_name
+FROM X
+ORDER BY event_time DESC;
+
+3) Arrêter / supprimer (quand tu as identifié la source)
+
+ALTER EVENT SESSION [WhoWrites_INS_GDV_GeneriqueDevises] ON SERVER STATE = STOP;
+DROP EVENT SESSION  [WhoWrites_INS_GDV_GeneriqueDevises] ON SERVER;
 
 
 

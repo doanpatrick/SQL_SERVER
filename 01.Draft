@@ -1,5 +1,45 @@
 voir role et permission
 
+
+
+USE NomDeTaBase;
+GO
+
+-- 1. Membres du rôle sysadmin (niveau instance)
+SELECT sp.name AS LoginName,
+       sp.type_desc AS LoginType,
+       'Serveur' AS Scope,
+       'sysadmin' AS Role
+FROM sys.server_role_members rm
+JOIN sys.server_principals r ON rm.role_principal_id = r.principal_id
+JOIN sys.server_principals sp ON rm.member_principal_id = sp.principal_id
+WHERE r.name = 'sysadmin';
+
+-- 2. Membres des rôles de base importants
+SELECT dp.name AS UserName,
+       dp.type_desc AS UserType,
+       'Base' AS Scope,
+       r.name AS Role
+FROM sys.database_role_members drm
+JOIN sys.database_principals r ON drm.role_principal_id = r.principal_id
+JOIN sys.database_principals dp ON drm.member_principal_id = dp.principal_id
+WHERE r.name IN ('db_owner','db_datareader','db_datawriter','db_ddladmin');
+
+-- 3. Permissions explicites (CONTROL, ALTER, SELECT, INSERT, UPDATE, DELETE, etc.)
+SELECT dp.name AS UserName,
+       dp.type_desc AS UserType,
+       perm.permission_name,
+       perm.state_desc
+FROM sys.database_permissions perm
+JOIN sys.database_principals dp ON perm.grantee_principal_id = dp.principal_id
+WHERE perm.permission_name IN ('CONTROL','ALTER','SELECT','INSERT','UPDATE','DELETE')
+  AND perm.state_desc IN ('GRANT_WITH_GRANT_OPTION','GRANT');
+
+
+
+
+
+
 USE NomDeTaBase;
 GO
 

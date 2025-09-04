@@ -40,40 +40,6 @@ WHERE perm.permission_name IN ('CONTROL','ALTER','SELECT','INSERT','UPDATE','DEL
 
 
 
-USE NomDeTaBase;
-GO
-
--- 1. Membres du rôle sysadmin (niveau instance)
-SELECT sp.name AS LoginName,
-       sp.type_desc AS LoginType,
-       'Serveur' AS Scope,
-       'sysadmin' AS Role
-FROM sys.server_role_members rm
-JOIN sys.server_principals r ON rm.role_principal_id = r.principal_id
-JOIN sys.server_principals sp ON rm.member_principal_id = sp.principal_id
-WHERE r.name = 'sysadmin';
-
--- 2. Membres du rôle db_owner (niveau base)
-SELECT dp.name AS UserName,
-       dp.type_desc AS UserType,
-       'Base' AS Scope,
-       'db_owner' AS Role
-FROM sys.database_role_members drm
-JOIN sys.database_principals r ON drm.role_principal_id = r.principal_id
-JOIN sys.database_principals dp ON drm.member_principal_id = dp.principal_id
-WHERE r.name = 'db_owner';
-
--- 3. Utilisateurs avec des permissions CONTROL / ALTER / ALL
-SELECT dp.name AS UserName,
-       dp.type_desc AS UserType,
-       perm.permission_name,
-       perm.state_desc
-FROM sys.database_permissions perm
-JOIN sys.database_principals dp ON perm.grantee_principal_id = dp.principal_id
-WHERE perm.permission_name IN ('CONTROL','ALTER')
-  AND perm.state_desc IN ('GRANT_WITH_GRANT_OPTION','GRANT');
-
-
 mettre un extended event en place
 
 1) Créer + démarrer la session (fichiers roulants)

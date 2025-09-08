@@ -1,0 +1,145 @@
+/* ============================================================
+   dbo.sp_help_revlogin_2019
+   - Script les logins SQL (pas les logins contenus/contained)
+   - Conserve SID, mot de passe (HASHED), DB par défaut,
+     langue par défaut, politique/expiration de mot de passe
+   - Recrée les membres de rôles serveur et permissions serveur
+   - Gère l’état DISABLE/ENABLE
+   - Option @LoginName pour cibler un login
+   TESTÉ sur SQL Server 2019+
+   ============================================================ */
+
+IF OBJECT_ID('dbo.sp_help_revlogin_2019') IS NOT NULL
+  DROP PROCEDURE dbo.sp_help_revlogin_2019;
+GO
+CREATE PROCEDURE dbo.sp_help_revlogin_2019
+  @LoginName sysname = NULL   -- NULL = tous les logins SQL
+AS
+BEGIN
+  SET NOCOUNT ON;
+
+  ----------------------------------------------------------------
+  -- 1) LOGINS SQL avec mot de passe HASHED + SID
+  ----------------------------------------------------------------
+  ;WITH src AS (
+    SELECT 
+      sp.name,
+      sp.type_desc,
+      sp.sid,
+      sl.password_hash,
+      sl.is_policy_checked,
+      sl.is_expiration_checked,
+      sp.is_disabled,
+      sp.default_database_name,
+      sp.default_language_name
+    FROM sys.server_principals sp
+    LEFT JOIN sys.sql_logins sl
+      ON sp.principal_id = sl.principal_id
+    WHERE sp.type IN ('S','U','G') -- S=SQL, U=Windows login, G=Windows group
+      AND sp.name NOT IN ('##MS_PolicyEventProcessingLogin##',
+                          '##MS_PolicyTsqlExecutionLogin##')
+      AND sp.principal_id > 0                -- exclut sa et systèmes spéciaux si besoin
+      AND ( @LoginName IS NULL OR sp.name = @LoginName )
+  )
+  SELECT 
+    [-- ordre 1] = 1,
+    [Script] =
+      CASE 
+        WHEN type_desc = 'SQL_LOGIN' THEN
+          '/* LOGIN SQL */' + CHAR(13) + 'CREATE LOGIN ' + QUOTENAME(name) + 
+          ' WITH PASSWORD = ' + CONVERT(varchar(max), password_hash, 1) + ' HASHED' +
+          ', SID = ' + CONVERT(varchar(200), sid, 1) +
+          CASE WHEN default_database_name IS NOT NULL 
+               THEN ', DEFAULT_DATABASE = ' + QUOTENAME(default_database_name) ELSE '' END +
+          CASE WHEN default_language_name IS NOT NULL 
+               THEN ', DEFAULT_LANGUAGE = ' + QUOTENAME(default_language_name) ELSE '' END +
+          ', CHECK_POLICY = ' + CASE WHEN is_policy_checked = 1 THEN 'ON' ELSE 'OFF' END +
+          ', CHECK_EXPIRATION = ' + CASE WHEN is_expiration_checked = 1 THEN 'ON' ELSE 'OFF' END + ';'
+        WHEN type_desc IN ('WINDOWS_LOGIN','WINDOWS_GROUP') THEN
+          '/* LOGIN WINDOWS */' + CHAR(13) + 'CREATE LOGIN ' + QUOTENAME(name) + 
+          ' FROM WINDOWS' +
+          CASE WHEN default_database_name IS NOT NULL 
+               THEN ' WITH DEFAULT_DATABASE = ' + QUOTENAME(default_database_name) ELSE '' END + 
+          ';'
+      END
+  INTO #CreateLogins
+  FROM src
+  WHERE type_desc IN ('SQL_LOGIN','WINDOWS_LOGIN','WINDOWS_GROUP')
+    -- Exclure les logins sans hash (p.ex. compte Windows) du bloc SQL_LOGIN
+    AND (type_desc <> 'SQL_LOGIN' OR password_hash IS NOT NULL);
+
+  ----------------------------------------------------------------
+  -- 2) Désactivation des logins désactivés (à rejouer après création)
+  ----------------------------------------------------------------
+  SELECT 
+    [-- ordre 2] = 2,
+    [Script] = 'ALTER LOGIN ' + QUOTENAME(sp.name) + ' DISABLE;'
+  INTO #DisableLogins
+  FROM sys.server_principals sp
+  WHERE sp.type IN ('S','U','G')
+    AND ( @LoginName IS NULL OR sp.name = @LoginName )
+    AND sp.is_disabled = 1;
+
+  ----------------------------------------------------------------
+  -- 3) Rôles serveur : ALTER SERVER ROLE ... ADD MEMBER ...
+  ----------------------------------------------------------------
+  ;WITH m AS (
+    SELECT 
+      r.name  AS role_name,
+      m.member_principal_id,
+      p.name  AS member_name
+    FROM sys.server_role_members m
+    JOIN sys.server_principals r ON r.principal_id = m.role_principal_id
+    JOIN sys.server_principals p ON p.principal_id = m.member_principal_id
+    WHERE r.type = 'R'
+      AND p.type IN ('S','U','G')
+      AND ( @LoginName IS NULL OR p.name = @LoginName )
+  )
+  SELECT 
+    [-- ordre 3] = 3,
+    [Script] = 'ALTER SERVER ROLE ' + QUOTENAME(role_name) + 
+               ' ADD MEMBER ' + QUOTENAME(member_name) + ';'
+  INTO #RoleMembers
+  FROM m;
+
+  ----------------------------------------------------------------
+  -- 4) Permissions serveur (GRANT/DENY/REVOKE sur SCOPE = SERVER)
+  ----------------------------------------------------------------
+  ;WITH perm AS (
+    SELECT 
+      spm.state_desc,
+      spm.permission_name,
+      pr.name AS principal_name
+    FROM sys.server_permissions spm
+    JOIN sys.server_principals pr ON pr.principal_id = spm.grantee_principal_id
+    WHERE spm.class_desc = 'SERVER'
+      AND pr.type IN ('S','U','G')
+      AND ( @LoginName IS NULL OR pr.name = @LoginName )
+  )
+  SELECT 
+    [-- ordre 4] = 4,
+    [Script] = 
+      CASE state_desc 
+        WHEN 'GRANT_WITH_GRANT_OPTION' THEN 'GRANT ' + permission_name + ' TO ' + QUOTENAME(principal_name) + ' WITH GRANT OPTION;'
+        WHEN 'GRANT' THEN 'GRANT ' + permission_name + ' TO ' + QUOTENAME(principal_name) + ';'
+        WHEN 'DENY'  THEN 'DENY '  + permission_name + ' TO ' + QUOTENAME(principal_name) + ';'
+        ELSE '-- (REVOKE non scripté automatiquement)'
+      END
+  INTO #ServerPerms
+  FROM perm;
+
+  ----------------------------------------------------------------
+  -- 5) Sortie ordonnée à copier/coller vers la cible
+  ----------------------------------------------------------------
+  SELECT [Script] FROM #CreateLogins
+  UNION ALL
+  SELECT [Script] FROM #RoleMembers
+  UNION ALL
+  SELECT [Script] FROM #ServerPerms
+  UNION ALL
+  SELECT [Script] FROM #DisableLogins
+  ORDER BY 1;  -- l’ordinal est déjà dans chaque table (#1, #3, #4, #2)
+
+  DROP TABLE IF EXISTS #CreateLogins, #RoleMembers, #ServerPerms, #DisableLogins;
+END
+GO

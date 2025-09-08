@@ -1,3 +1,31 @@
+EXEC sp_configure 'show advanced options', 1; RECONFIGURE;
+EXEC sp_configure 'filestream access level', 2;  -- 0=Off, 1=T-SQL, 2=T-SQL + Win I/O
+RECONFIGURE;
+SELECT SERVERPROPERTY('FilestreamEffectiveLevel'),
+       SERVERPROPERTY('FilestreamShareName');
+
+
+
+-- Remplace le chemin par ton MDF
+DBCC CHECKPRIMARYFILE ('K:\APP\MSSQL\MSSQL\DATA\BIJOU.mdf', 2);
+-- Regarde le nom du FILEGROUP de type FILESTREAM et le nom logique du fichier FILESTREAM
+
+
+
+
+CREATE DATABASE BIJOU
+ON
+( FILENAME = 'K:\APP\MSSQL\MSSQL\DATA\BIJOU.mdf' ),
+( FILENAME = 'K:\APP\MSSQL\MSSQL\LOG\BIJOU_log.ldf' ),
+FILEGROUP BIJOU_FS CONTAINS FILESTREAM         -- nom exact du FG FILSTREAM
+( NAME = 'BIJOU_FS', FILENAME = 'K:\APP\MSSQL\MSSQL\BIJOU' )  -- <<< le dossier avec filestream.hdr
+FOR ATTACH;
+
+
+
+
+
+
 voir role et permission
 
 

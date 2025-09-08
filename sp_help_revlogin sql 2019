@@ -143,3 +143,15 @@ BEGIN
   DROP TABLE IF EXISTS #CreateLogins, #RoleMembers, #ServerPerms, #DisableLogins;
 END
 GO
+
+
+Tout exporter (recommandé) :
+
+EXEC dbo.sp_help_revlogin_2019;
+
+Après restauration/migration des bases, pensez à réparer d’éventuels utilisateurs orphelins :
+
+USE MaBase;
+EXEC sp_change_users_login 'Report';  -- (hérité; pour SQL 2012+ préférez :)
+-- Pour SQL 2012+ :
+ALTER USER MonUser WITH LOGIN = MonLogin;

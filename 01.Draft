@@ -1,3 +1,19 @@
+
+restauration en mode single user sur master
+
+-- Vérifie d’abord le backup
+RESTORE HEADERONLY FROM DISK = 'D:\Backup\master_full.bak';
+RESTORE FILELISTONLY FROM DISK = 'D:\Backup\master_full.bak';
+
+-- Restaure master sur l’instance bac à sable
+RESTORE DATABASE master
+  FROM DISK = 'D:\Backup\master_full.bak'
+  WITH REPLACE;
+-- L’instance va s’arrêter après la restauration de master.
+
+
+
+
 voir
 
 -- Vérifier le propriétaire actuel vu par master

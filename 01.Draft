@@ -1,3 +1,21 @@
+voir
+
+-- Vérifier le propriétaire actuel vu par master
+SELECT name, suser_sname(owner_sid) AS owner_in_master
+FROM sys.databases
+WHERE name = N'DB_OBB';
+
+-- Vérifier le dbo à l'intérieur de la base
+USE [DB_OBB];
+SELECT name, sid, SUSER_SNAME(sid) AS dbo_login_in_db
+FROM sys.database_principals
+WHERE name = N'dbo';
+
+-- Corriger : remettre un propriétaire cohérent (ex : sa)
+ALTER AUTHORIZATION ON DATABASE::[DB_OBB] TO sa;
+
+
+
 EXEC sp_configure 'show advanced options', 1; RECONFIGURE;
 EXEC sp_configure 'filestream access level', 2;  -- 0=Off, 1=T-SQL, 2=T-SQL + Win I/O
 RECONFIGURE;

@@ -1,4 +1,30 @@
 
+voir le filestream
+
+/* ===============================
+   Informations FILESTREAM Instance
+   =============================== */
+SELECT  
+    SERVERPROPERTY('InstanceName')       AS InstanceName,
+    SERVERPROPERTY('FilestreamShareName') AS FilestreamShareName,
+    SERVERPROPERTY('FilestreamConfiguredLevel') AS ConfiguredLevel,
+    SERVERPROPERTY('FilestreamEffectiveLevel')  AS EffectiveLevel;
+
+/* ===============================
+   Informations FILESTREAM par base
+   =============================== */
+SELECT  
+    db.name              AS DatabaseName,
+    fg.name              AS FilegroupName,
+    mf.name              AS FileName,
+    mf.physical_name     AS PhysicalPath,
+    mf.type_desc         AS FileType
+FROM sys.master_files mf
+JOIN sys.databases db ON db.database_id = mf.database_id
+JOIN sys.filegroups fg ON mf.data_space_id = fg.data_space_id
+WHERE mf.type = 2   -- 2 = FILESTREAM
+ORDER BY db.name, fg.name;
+
 restauration en mode single user sur master
 
 -- Vérifie d’abord le backup

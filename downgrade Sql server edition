@@ -1,0 +1,14 @@
+Script rapide pour lister les features utilisées :
+
+SELECT DB_NAME(database_id) AS DatabaseName, feature_name, feature_id
+FROM sys.dm_db_persisted_sku_features;
+
+
+job
+
+USE msdb;
+GO
+SELECT 'EXEC msdb.dbo.sp_add_job @job_name = N''' + name + ''';'
+FROM msdb.dbo.sysjobs;
+
+linked server

@@ -1,4 +1,129 @@
 
+update level cluster
+
+Tu peux prendre un snapshot/backup de VM avant l’upgrade OS ou avant la commande Update-ClusterFunctionalLevel (ça donne une sécurité supplémentaire).
+	•	Les prérequis et droits ne changent pas : il te faut être Cluster Admin (et Admin local sur les VMs).
+
+⸻
+
+📌 Exemple concret : 2 nœuds en VM
+
+Situation de départ
+	•	Cluster Windows Server 2016 (CFL = 9).
+	•	Tu as fait l’upgrade in-place ou rebuild de chaque VM en Windows Server 2019.
+	•	Tous les nœuds sont maintenant sous 2019.
+
+⸻
+
+Étapes pratiques
+	1.	Vérifier la version et le niveau fonctionnel actuel
+
+Get-ClusterNode
+Get-Cluster | fl ClusterFunctionalLevel
+
+2.	Contrôler que toutes les VMs sont à jour (patchs Windows + drivers VM tools)
+	•	Si tu es sous VMware : vérifier VMware Tools + compatibilité hardware version.
+	•	Si tu es sous Hyper-V : vérifier les integration services.
+	3.	Sauvegarde/snapshot
+	•	Snapshot des VMs cluster nodes (optionnel mais conseillé).
+	•	Sauvegarde des workloads (SQL, File Share, etc.).
+	4.	Élever le niveau fonctionnel
+
+
+Update-ClusterFunctionalLevel
+
+
+Pas de redémarrage nécessaire, mais certaines ressources peuvent brièvement basculer (prévoir fenêtre).
+
+	5.	Vérification post-upgrade
+
+Get-Cluster | fl ClusterFunctionalLevel
+Get-ClusterGroup
+
+
+
+
+
+
+Parfait 👌
+Voici un checklist complet en PowerShell pour ton cas (cluster de VMs déjà migrées vers Windows Server 2019/2022). Tu peux l’utiliser comme script de contrôle avant / pendant / après l’élévation du Cluster Functional Level (CFL).
+
+⸻
+
+🟢 Étape 1 – Vérifications préalables
+
+# Vérifier les nœuds du cluster et leur état
+Get-ClusterNode | ft Name, State, NodeWeight
+
+# Vérifier la version de l’OS sur chaque nœud
+Get-ClusterNode | % { $_.Name + " - " + (Get-CimInstance Win32_OperatingSystem -ComputerName $_.Name).Caption }
+
+# Vérifier le niveau fonctionnel actuel du cluster
+Get-Cluster | fl Name, ClusterFunctionalLevel
+
+# Vérifier l’état global du cluster
+Test-Cluster
+
+👉 Ici tu t’assures :
+	•	Tous les nœuds sont Up et en Windows Server 2019/2022.
+	•	Le CFL est encore à l’ancien niveau (ex : 9 si anciennement 2016).
+	•	Le Test-Cluster ne remonte pas d’erreurs bloquantes.
+
+⸻
+
+🟡 Étape 2 – Sauvegardes / snapshots (optionnel mais conseillé)
+	•	Snapshot ou clone des VMs cluster nodes.
+	•	Sauvegarde des workloads hébergés (SQL Server, File Server, etc.).
+
+⸻
+
+🔵 Étape 3 – Upgrade du Cluster Functional Level
+
+
+# Monter le cluster functional level
+Update-ClusterFunctionalLevel
+
+⚠️ Cette commande est irréversible.
+Elle ne redémarre pas les VMs, mais peut entraîner une bascule rapide de rôles (prévoir une petite fenêtre).
+
+⸻
+
+🟣 Étape 4 – Vérifications post-upgrade
+
+
+# Recontrôler le CFL
+Get-Cluster | fl Name, ClusterFunctionalLevel
+
+# Vérifier les ressources du cluster
+Get-ClusterGroup | ft Name, State, OwnerNode
+
+# Vérifier les disques / volumes
+Get-ClusterResource | ? ResourceType -eq "Physical Disk" | ft Name, State, OwnerGroup
+
+
+👉 Tu confirmes que :
+	•	Le CFL a bien changé (10 = 2019, 11 = 2022).
+	•	Toutes les ressources sont Online.
+	•	Les rôles (SQL, File Share, etc.) sont bien hébergés sur un nœud.
+
+⸻
+
+🟤 Étape 5 – Nettoyage
+	•	Supprimer les snapshots VM (après validation).
+	•	Documenter le nouveau CFL.
+
+⸻
+
+💡 Astuce : tu peux exécuter tout ça en Remote PowerShell depuis ton poste admin si ton compte est Cluster Admin et Admin local sur les VMs.
+
+
+
+
+
+
+
+
+
 voir le filestream
 
 /* ===============================

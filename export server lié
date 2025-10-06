@@ -1,0 +1,32 @@
+Étapes recommandées avant le downgrade
+
+1. Exporter les serveurs liés
+
+Exécute sur ton instance actuelle :
+
+-- Script des serveurs liés
+SELECT 'EXEC master.dbo.sp_addlinkedserver 
+    @server = N''' + name + ''', 
+    @srvproduct = N''' + ISNULL(srvproduct, '') + ''', 
+    @provider = N''' + ISNULL(provider, '') + ''', 
+    @datasrc = N''' + ISNULL(datasource, '') + ''';'
+FROM sys.servers
+WHERE is_linked = 1;
+
+Et pour les logins associés :
+
+SELECT 'EXEC master.dbo.sp_addlinkedsrvlogin 
+    @rmtsrvname = N''' + s.name + ''', 
+    @useself = ' + CASE WHEN l.useself = 1 THEN '''True''' ELSE '''False''' END + ', 
+    @rmtuser = N''' + ISNULL(l.rmtuser, '') + ''', 
+    @rmtpassword = N''' + ISNULL(l.rmtpassword, '') + ''';'
+FROM sys.linked_logins l
+JOIN sys.servers s ON l.server_id = s.server_id
+WHERE s.is_linked = 1;
+
+
+
+Job
+
+SELECT 'CREATE CREDENTIAL [' + name + '] WITH IDENTITY = ''' + credential_identity + ''', SECRET = ''<PASSWORD>';'
+FROM sys.credentials;

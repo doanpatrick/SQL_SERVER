@@ -1,3 +1,13 @@
+vérification user
+
+USE MaBase;
+GO
+SELECT dp.name AS [DatabaseUser], sp.name AS [LoginName], dp.sid
+FROM sys.database_principals dp
+LEFT JOIN sys.server_principals sp ON dp.sid = sp.sid
+WHERE dp.type IN ('S', 'U')
+ORDER BY dp.name;
+
 
 update level cluster
 

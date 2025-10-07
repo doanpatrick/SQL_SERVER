@@ -1,3 +1,80 @@
+test partionning sur standard
+
+----------------------------------------------------------
+-- 1️⃣ Création d'une base de test
+----------------------------------------------------------
+USE master;
+GO
+IF DB_ID('PartitionTestDB') IS NOT NULL
+BEGIN
+    ALTER DATABASE PartitionTestDB SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE PartitionTestDB;
+END;
+GO
+
+CREATE DATABASE PartitionTestDB;
+GO
+USE PartitionTestDB;
+GO
+
+----------------------------------------------------------
+-- 2️⃣ Création d'une fonction de partition
+----------------------------------------------------------
+PRINT '=== Création de la fonction de partition ===';
+GO
+CREATE PARTITION FUNCTION pf_TestRange (int)
+AS RANGE LEFT FOR VALUES (1000, 2000, 3000);
+GO
+
+----------------------------------------------------------
+-- 3️⃣ Création d’un schéma de partition
+----------------------------------------------------------
+PRINT '=== Création du schéma de partition ===';
+GO
+CREATE PARTITION SCHEME ps_TestRange
+AS PARTITION pf_TestRange
+ALL TO ([PRIMARY]);
+GO
+
+----------------------------------------------------------
+-- 4️⃣ Création d’une table partitionnée
+----------------------------------------------------------
+PRINT '=== Création de la table partitionnée ===';
+GO
+CREATE TABLE dbo.TestPartition
+(
+    ID int NOT NULL,
+    Col1 varchar(50)
+)
+ON ps_TestRange(ID);
+GO
+
+----------------------------------------------------------
+-- 5️⃣ Vérification du partitionnement
+----------------------------------------------------------
+PRINT '=== Vérification du partitionnement ===';
+GO
+SELECT 
+    pf.name AS PartitionFunction,
+    ps.name AS PartitionScheme,
+    pf.function_id,
+    pf.boundary_value_on_right,
+    prv.value AS BoundaryValue
+FROM sys.partition_functions AS pf
+JOIN sys.partition_schemes AS ps ON ps.function_id = pf.function_id
+JOIN sys.partition_range_values AS prv ON pf.function_id = prv.function_id
+ORDER BY prv.boundary_id;
+GO
+
+SELECT 
+    object_name(object_id) AS TableName,
+    partition_number,
+    rows
+FROM sys.partitions
+WHERE object_id = OBJECT_ID('dbo.TestPartition');
+GO
+
+
 vérification user
 
 USE MaBase;

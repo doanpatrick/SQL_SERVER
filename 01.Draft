@@ -1,3 +1,129 @@
+perf lcb
+
+1. Historique des attentes de type “Lock” (sur 24 h)
+
+👉 Cette vue s’appuie sur sys.dm_os_wait_stats, qui cumule les temps d’attente depuis le dernier démarrage du service SQL Server.
+Elle permet de voir quels types de verrous dominent globalement.
+
+-- Attentes LOCK sur les dernières 24h (depuis dernier reset)
+SELECT 
+    wait_type,
+    waiting_tasks_count AS NbOccurrences,
+    wait_time_ms / 1000.0 AS WaitTime_s,
+    (wait_time_ms * 100.0 / SUM(wait_time_ms) OVER()) AS PercentOfTotal
+FROM sys.dm_os_wait_stats
+WHERE wait_type LIKE 'LCK%'
+ORDER BY wait_time_ms DESC;
+
+Lecture :
+	•	Si tu vois LCK_M_IS ou LCK_M_IX en tête → contention sur inserts/updates.
+	•	Si LCK_M_S → lectures bloquées par transactions longues.
+	•	Si LCK_M_RS_S → verrouillage de plage d’index (souvent sur requêtes avec BETWEEN, LIKE, etc.).
+
+⸻
+
+📈 2. Top 10 requêtes historiques avec attente “Lock”
+
+👉 Celle-ci va chercher dans sys.dm_exec_query_stats toutes les requêtes ayant accumulé du temps d’attente sur les verrous.
+Elle te permet d’identifier les requêtes les plus bloquantes, même si elles ne tournent plus à l’instant T.
+
+-- Requêtes ayant accumulé le plus de LOCK waits depuis le dernier démarrage
+SELECT TOP 10
+    DB_NAME(st.dbid) AS DatabaseName,
+    SUBSTRING(st.text, (qs.statement_start_offset/2)+1,
+        ((CASE qs.statement_end_offset
+          WHEN -1 THEN DATALENGTH(st.text)
+          ELSE qs.statement_end_offset END
+         - qs.statement_start_offset)/2)+1) AS SQLText,
+    qs.execution_count,
+    qs.total_elapsed_time / 1000.0 AS TotalTime_ms,
+    qs.total_worker_time / 1000.0 AS CPUTime_ms,
+    qs.total_wait_time / 1000.0 AS WaitTime_ms,
+    qs.total_wait_time * 100.0 / qs.total_elapsed_time AS WaitPct,
+    qs.total_logical_reads AS LogicalReads,
+    qs.total_logical_writes AS LogicalWrites
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+WHERE qs.total_wait_time > 0
+ORDER BY qs.total_wait_time DESC;
+
+	•	Le champ WaitPct te montre le poids des attentes dans le temps total.
+	•	Tu verras directement les requêtes qui cumulent du lock (souvent des INSERT INTO ... ou UPDATE ... WHERE ... sur les mêmes tables).
+
+⸻
+
+🧩 3. Attentes par base de données sur 24 h
+
+👉 Pour savoir quelle base est la plus touchée par les locks :
+
+SELECT 
+    DB_NAME(database_id) AS DatabaseName,
+    SUM(wait_time_ms) / 1000.0 AS WaitTime_s,
+    COUNT(*) AS NbWaits,
+    AVG(wait_time_ms) / 1000.0 AS AvgWait_s
+FROM sys.dm_os_waiting_tasks
+WHERE wait_type LIKE 'LCK%'
+GROUP BY database_id
+ORDER BY WaitTime_s DESC;
+
+
+4. Évolution temporelle (approche journalière)
+
+👉 Si tu as activé le Query Store, tu peux obtenir l’évolution dans le temps des locks :
+
+SELECT 
+    qt.query_sql_text,
+    rs.last_execution_time,
+    rs.avg_wait_time / 1000.0 AS AvgWait_s,
+    rs.avg_duration / 1000.0 AS AvgDuration_s,
+    rs.count_executions
+FROM sys.query_store_runtime_stats AS rs
+JOIN sys.query_store_plan AS qp ON rs.plan_id = qp.plan_id
+JOIN sys.query_store_query AS qq ON qp.query_id = qq.query_id
+JOIN sys.query_store_query_text AS qt ON qq.query_text_id = qt.query_text_id
+WHERE rs.last_execution_time > DATEADD(HOUR, -24, GETDATE())
+AND rs.avg_wait_time > 0
+ORDER BY rs.avg_wait_time DESC;
+
+Cela te montrera :
+	•	Quelles requêtes ont eu les plus gros temps d’attente sur 24 h,
+	•	Et à quelle heure elles ont été exécutées (last_execution_time),
+→ Tu pourras corréler ça avec tes pics de 05 h15 / 08 h20.
+
+⸻
+
+🧰 5. Astuce utile : reset des stats pour une fenêtre propre
+
+Avant de relancer des traitements et observer une nouvelle période (par exemple demain matin) :
+
+DBCC SQLPERF('sys.dm_os_wait_stats', CLEAR);
+
+ Cela vide les compteurs d’attente et permet de mesurer sur une période donnée (propre, sans bruit historique).
+
+⸻
+
+🔎 6. Lecture finale – ce que tu dois retenir
+
+
+Observation
+Interprétation probable
+Pics réguliers de LCK_M_IS ou LCK_M_IX
+Inserts/Updates simultanés sur même table ou page
+Lock Intent dominant
+Forte contention sur hiérarchie de verrous (page → table)
+Attente Lock Shared
+Lectures bloquées par transactions non commit
+Table récurrente dans top locks
+“Hot table” à partitionner, ou à traiter par batch
+Heures fixes (05 h / 08 h)
+Job planifié (ETL, intégration, middleware) créant un pic concurrentiel
+
+
+
+
+
+
+
 test partionning sur standard
 
 ----------------------------------------------------------

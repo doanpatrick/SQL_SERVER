@@ -1,3 +1,15 @@
+
+voir lez snapshot db
+
+SELECT 
+    s.name AS SnapshotName,
+    d.name AS SourceDatabase,
+    s.create_date,
+    s.state_desc
+FROM sys.databases s
+JOIN sys.databases d ON s.source_database_id = d.database_id
+ORDER BY d.name, s.create_date;
+
 perf lcb
 
 1. Historique des attentes de type “Lock” (sur 24 h)

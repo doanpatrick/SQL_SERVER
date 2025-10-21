@@ -1,3 +1,66 @@
+deplacer base SSISDB
+
+BACKUP DATABASE SSISDB TO DISK = 'D:\Backup\SSISDB_before_move.bak' WITH INIT;
+
+SELECT name AS LogicalName, physical_name
+FROM sys.master_files
+WHERE database_id = DB_ID('SSISDB');
+
+ALTER DATABASE SSISDB SET OFFLINE WITH ROLLBACK IMMEDIATE;
+
+Déplacer physiquement les fichiers sur le disque
+
+
+ALTER DATABASE SSISDB 
+MODIFY FILE (NAME = SSISDB, FILENAME = 'O:\SQLData\SSISDB.mdf');
+GO
+
+ALTER DATABASE SSISDB 
+MODIFY FILE (NAME = SSISDB_log, FILENAME = 'L:\SQLLogs\SSISDB.ldf');
+GO
+
+ALTER DATABASE SSISDB SET ONLINE;
+
+SELECT name, physical_name 
+FROM sys.master_files 
+WHERE database_id = DB_ID('SSISDB');
+
+
+
+*******************
+
+USE master;
+GO
+
+-- 1️⃣ Vérifie les chemins actuels
+SELECT name AS LogicalName, physical_name
+FROM sys.master_files
+WHERE database_id = DB_ID('SSISDB');
+GO
+
+-- 2️⃣ Met la base hors ligne (arrête immédiatement les connexions)
+ALTER DATABASE SSISDB SET OFFLINE WITH ROLLBACK IMMEDIATE;
+GO
+
+
+-- 3️⃣ Met à jour les chemins physiques dans SQL Server
+ALTER DATABASE SSISDB 
+MODIFY FILE (NAME = SSISDB, FILENAME = 'K:\SQLData\SSISDB.mdf');
+GO
+
+ALTER DATABASE SSISDB 
+MODIFY FILE (NAME = SSISDB_log, FILENAME = 'L:\SQLLogs\SSISDB_log.ldf');
+GO
+
+-- 4️⃣ Remet la base en ligne
+ALTER DATABASE SSISDB SET ONLINE;
+GO
+
+SELECT name AS LogicalName, physical_name
+FROM sys.master_files
+WHERE database_id = DB_ID('SSISDB');
+
+
 
 voir lez snapshot db
 

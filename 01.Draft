@@ -1,3 +1,18 @@
+-- Autoriser la configuration avancée
+EXEC sp_configure 'show advanced options', 1;
+RECONFIGURE;
+
+-- Activer xp_cmdshell
+EXEC sp_configure 'xp_cmdshell', 1;
+RECONFIGURE;
+
+
+EXEC xp_cmdshell 'whoami /priv';
+
+
+EXEC sp_configure 'xp_cmdshell', 0;
+RECONFIGURE;
+
 Tu verras si c’est juste lent à cause du débit disque ou bloqué ailleurs.
 
 

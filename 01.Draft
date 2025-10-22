@@ -1,3 +1,6 @@
+Vérifier l'initialisation instantanée 
+
+
 -- Autoriser la configuration avancée
 EXEC sp_configure 'show advanced options', 1;
 RECONFIGURE;
@@ -15,6 +18,9 @@ RECONFIGURE;
 
 Tu verras si c’est juste lent à cause du débit disque ou bloqué ailleurs.
 
+
+
+Voir le la progression du restore 
 
 SELECT 
     session_id, 

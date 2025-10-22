@@ -1,3 +1,21 @@
+Tu verras si c’est juste lent à cause du débit disque ou bloqué ailleurs.
+
+
+SELECT 
+    session_id, 
+    wait_type, 
+    wait_time, 
+    blocking_session_id,
+    percent_complete, 
+    estimated_completion_time/1000/60 AS est_completion_min,
+    command,
+    database_id,
+    start_time
+FROM sys.dm_exec_requests
+WHERE command LIKE 'RESTORE%';
+
+
+
 deplacer base SSISDB
 
 BACKUP DATABASE SSISDB TO DISK = 'D:\Backup\SSISDB_before_move.bak' WITH INIT;

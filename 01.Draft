@@ -1,3 +1,228 @@
+sendmail sql server
+
+
+
+1 config
+
+-- 🔍 Liste des comptes Database Mail
+SELECT account_id, name AS AccountName, email_address, mailserver_name, port, enable_ssl
+FROM msdb.dbo.sysmail_account;
+
+-- 🔍 Liste des profils Database Mail
+SELECT profile_id, name AS ProfileName, description
+FROM msdb.dbo.sysmail_profile;
+
+-- 🔍 Association profils ↔ comptes
+SELECT p.name AS ProfileName, a.name AS AccountName, pa.sequence_number
+FROM msdb.dbo.sysmail_profileaccount pa
+JOIN msdb.dbo.sysmail_profile p ON pa.profile_id = p.profile_id
+JOIN msdb.dbo.sysmail_account a ON pa.account_id = a.account_id;
+
+-- 🔍 Vérifie les logs Database Mail récents
+SELECT TOP 20 log_date, event_type, log_id, description
+FROM msdb.dbo.sysmail_event_log
+ORDER BY log_date DESC;
+
+
+Étape 2 — Tester la connectivité et le chiffrement TLS
+
+🧰 Option A — depuis le serveur SQL (avec PowerShell)
+
+Ouvre une session PowerShell (en admin) sur le serveur SQL et lance :
+
+
+# Test de connectivité réseau
+Test-NetConnection smtp.exemple.com -Port 587
+
+# Test de chiffrement STARTTLS avec openssl (si installé)
+openssl s_client -starttls smtp -connect smtp.exemple.com:587 -crlf -quiet
+
+
+Si tu vois dans le résultat quelque chose comme :
+
+
+250-STARTTLS
+...
+SSL-Session:
+    Protocol  : TLSv1.2
+    Cipher    : ECDHE-RSA-AES256-GCM-SHA384
+
+
+→ ton serveur supporte bien STARTTLS, et la négociation TLS est active.
+
+⚠️ Si tu vois une erreur de connexion ou un refus sur le port 587 →
+le problème est côté pare-feu ou configuration SMTP.
+
+
+
+Option B — test simple en PowerShell (envoi réel)
+
+
+
+Send-MailMessage -From "sqlserver@exemple.com" `
+ -To "ton.email@exemple.com" `
+ -Subject "Test TLS SQL Server" `
+ -Body "Ceci est un test STARTTLS depuis le serveur SQL." `
+ -SmtpServer "smtp.exemple.com" `
+ -Port 587 -UseSsl `
+ -Credential (Get-Credential)
+
+
+Si le mail arrive, le pipeline SMTP est bien fonctionnel et chiffré.
+
+
+Étape 3 — Corriger si nécessaire
+
+enable_ssl = 0
+Le chiffrement STARTTLS n’est pas activé
+Modifier le compte Database Mail : EXEC msdb.dbo.sysmail_update_account_sp @account_name='...', @enable_ssl=1;
+
+
+
+Port ≠ 587
+Mauvais port
+Mettre @port = 587
+
+
+Logs d’erreurs “Could not connect to mail server”
+Port ou firewall bloqué
+Ouvrir le port TCP 587 vers ton SMTP
+
+“The SMTP server requires a secure connection”
+STARTTLS requis mais SSL non activé
+Activer SSL
+
+Mailbox unavailable”
+Mauvais login/mot de passe
+Vérifier ton authentification SMTP
+
+
+
+SELECT
+    a.name AS AccountName,
+    a.mailserver_name AS SMTPServer,
+    a.port,
+    CASE a.enable_ssl WHEN 1 THEN 'STARTTLS activé ✅' ELSE 'Non chiffré ⚠️' END AS Chiffrement,
+    a.email_address,
+    sp.name AS ProfileName
+FROM msdb.dbo.sysmail_account a
+LEFT JOIN msdb.dbo.sysmail_profileaccount spa ON a.account_id = spa.account_id
+LEFT JOIN msdb.dbo.sysmail_profile sp ON spa.profile_id = sp.profile_id;
+
+
+Si tu vois STARTTLS activé ✅ + port 587, ta configuration est parfaite et sécurisée.
+
+
+
+script test analyse
+
+/* =====================================================================
+   🧩 SQL Server - Diagnostic complet Database Mail
+   Auteur : ChatGPT (GPT-5)
+   Objectif : Vérifier la configuration SMTP, le chiffrement TLS, 
+              et détecter les erreurs d’envoi.
+   Compatible : SQL Server 2012 → 2022
+   ===================================================================== */
+
+SET NOCOUNT ON;
+
+PRINT '===== 🔍 1. Vérification de la configuration Database Mail =====';
+
+-- Comptes configurés
+SELECT 
+    a.account_id,
+    a.name AS AccountName,
+    a.email_address,
+    a.mailserver_name AS SMTP_Server,
+    a.port,
+    CASE a.enable_ssl WHEN 1 THEN '✅ STARTTLS activé' ELSE '⚠️ Non chiffré' END AS SSL_Status,
+    a.username AS SMTP_Login,
+    p.name AS ProfileName
+FROM msdb.dbo.sysmail_account a
+LEFT JOIN msdb.dbo.sysmail_profileaccount pa ON a.account_id = pa.account_id
+LEFT JOIN msdb.dbo.sysmail_profile p ON pa.profile_id = p.profile_id
+ORDER BY a.account_id;
+
+PRINT ' ';
+PRINT '===== ⚙️ 2. Paramètres globaux Database Mail =====';
+
+SELECT name, value
+FROM msdb.dbo.sysmail_configuration
+ORDER BY name;
+
+PRINT ' ';
+PRINT '===== 📬 3. Derniers envois Database Mail =====';
+
+SELECT TOP 20
+    sent_status,
+    recipients,
+    subject,
+    mailitem_id,
+    CONVERT(VARCHAR(19), send_request_date, 120) AS SendRequestDate,
+    CONVERT(VARCHAR(19), sent_date, 120) AS SentDate
+FROM msdb.dbo.sysmail_allitems
+ORDER BY mailitem_id DESC;
+
+PRINT ' ';
+PRINT '===== ⚠️ 4. Derniers événements / erreurs Database Mail =====';
+
+SELECT TOP 20
+    log_date,
+    event_type,
+    CASE 
+        WHEN event_type = 'error' THEN '❌'
+        WHEN event_type = 'warning' THEN '⚠️'
+        ELSE '✅'
+    END AS StatusIcon,
+    description
+FROM msdb.dbo.sysmail_event_log
+ORDER BY log_date DESC;
+
+PRINT ' ';
+PRINT '===== 🧾 5. Résumé synthétique =====';
+
+DECLARE 
+    @nbAccounts INT,
+    @nbProfiles INT,
+    @nbErrors INT,
+    @nbSuccess INT,
+    @sslEnabled INT;
+
+SELECT @nbAccounts = COUNT(*) FROM msdb.dbo.sysmail_account;
+SELECT @nbProfiles = COUNT(*) FROM msdb.dbo.sysmail_profile;
+SELECT @nbErrors = COUNT(*) FROM msdb.dbo.sysmail_event_log WHERE event_type = 'error';
+SELECT @nbSuccess = COUNT(*) FROM msdb.dbo.sysmail_event_log WHERE event_type = 'success';
+SELECT @sslEnabled = COUNT(*) FROM msdb.dbo.sysmail_account WHERE enable_ssl = 1;
+
+PRINT ' ';
+PRINT '===== 🧮 Synthèse =====';
+PRINT 'Nombre de comptes SMTP configurés : ' + CAST(@nbAccounts AS VARCHAR(10));
+PRINT 'Nombre de profils Database Mail :  ' + CAST(@nbProfiles AS VARCHAR(10));
+PRINT 'Comptes avec STARTTLS activé :     ' + CAST(@sslEnabled AS VARCHAR(10));
+PRINT 'Derniers succès d’envoi :          ' + CAST(@nbSuccess AS VARCHAR(10));
+PRINT 'Dernières erreurs détectées :      ' + CAST(@nbErrors AS VARCHAR(10));
+
+PRINT ' ';
+PRINT '===== ✅ Analyse finale =====';
+IF @sslEnabled > 0 
+    PRINT '✅ Le chiffrement STARTTLS (port 587) est activé — configuration conforme.';
+ELSE 
+    PRINT '⚠️ Attention : le chiffrement TLS n’est pas activé sur un ou plusieurs comptes SMTP.';
+
+IF @nbErrors > 0
+    PRINT '⚠️ Des erreurs récentes ont été détectées dans les logs. Consulte les détails ci-dessus.';
+ELSE
+    PRINT '✅ Aucun problème récent détecté dans Database Mail.';
+
+PRINT ' ';
+PRINT '===== 🕓 Fin du diagnostic =====';
+
+
+
+-----------------------------
+
+
+
 Vérifier l'initialisation instantanée 
 
 

@@ -266,6 +266,51 @@ SELECT TOP 20
 FROM msdb.dbo.sysmail_event_log
 ORDER BY log_date DESC;
 
+
+
+
+
+pour tester et modifier
+
+Comment savoir si le port 587 est disponible
+
+Sur ton serveur SQL, lance dans PowerShell :
+
+
+Test-NetConnection smtp.exemple.com -Port 587
+
+
+Si TcpTestSucceeded = True, c’est bon signe.
+Sinon, le pare-feu ou le serveur SMTP bloque ce port.
+
+⸻
+
+🔄 4️⃣ Si ton fournisseur supporte STARTTLS (587)
+
+Alors tu peux modifier ton compte Database Mail existant :
+
+
+EXEC msdb.dbo.sysmail_update_account_sp
+    @account_name = 'TonCompteSMTP',
+    @mailserver_name = 'smtp.exemple.com',
+    @port = 587,
+    @enable_ssl = 1;   -- STARTTLS activé
+
+
+Puis retester
+
+
+EXEC msdb.dbo.sp_send_dbmail
+    @profile_name = 'TonProfilMail',
+    @recipients = 'toi@exemple.com',
+    @subject = 'Test STARTTLS 587',
+    @body = 'Email envoyé avec chiffrement STARTTLS.';
+
+
+Si l’envoi réussit, ta configuration est désormais sécurisée et conforme.
+
+
+
 -----------------------------
 
 

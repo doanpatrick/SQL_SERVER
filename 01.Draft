@@ -229,7 +229,42 @@ ELSE
 PRINT ' ';
 PRINT '===== 🕓 Fin du diagnostic =====';
 
+pour 2017
 
+/* ===========================================================
+   ✅ Diagnostic Database Mail (compatible SQL Server 2017)
+   =========================================================== */
+
+-- 1️⃣ Comptes configurés
+EXEC msdb.dbo.sysmail_help_account_sp;
+
+-- 2️⃣ Profils Database Mail
+EXEC msdb.dbo.sysmail_help_profile_sp;
+
+-- 3️⃣ Association Profil ↔ Compte
+EXEC msdb.dbo.sysmail_help_profileaccount_sp;
+
+-- 4️⃣ Profil par défaut
+EXEC msdb.dbo.sysmail_help_principalprofile_sp;
+
+-- 5️⃣ Derniers envois
+SELECT TOP 20
+    mailitem_id,
+    sent_status,
+    recipients,
+    subject,
+    send_request_date,
+    sent_date
+FROM msdb.dbo.sysmail_allitems
+ORDER BY mailitem_id DESC;
+
+-- 6️⃣ Derniers événements (erreurs, warnings, succès)
+SELECT TOP 20
+    log_date,
+    event_type,
+    description
+FROM msdb.dbo.sysmail_event_log
+ORDER BY log_date DESC;
 
 -----------------------------
 

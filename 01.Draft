@@ -1,5 +1,17 @@
 sendmail sql server
 
+SELECT
+    a.name AS AccountName,
+    a.mailserver_name AS SMTP_Server,
+    a.port,
+    CASE a.enable_ssl WHEN 1 THEN '✅ STARTTLS activé' ELSE '⚠️ Non chiffré' END AS TLS_Status,
+    a.email_address,
+    p.name AS ProfileName
+FROM msdb.dbo.sysmail_account a
+JOIN msdb.dbo.sysmail_profileaccount pa ON a.account_id = pa.account_id
+JOIN msdb.dbo.sysmail_profile p ON pa.profile_id = p.profile_id
+ORDER BY a.name;
+
 
 
 1 config

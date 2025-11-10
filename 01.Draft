@@ -1,3 +1,19 @@
+voir le role control server
+
+SELECT pr.name, pe.permission_name, pe.state_desc
+FROM sys.server_permissions AS pe
+JOIN sys.server_principals AS pr
+  ON pe.grantee_principal_id = pr.principal_id
+WHERE pe.permission_name = 'CONTROL SERVER';
+
+
+
+
+
+
+
+
+
 SELECT  
     bs.database_name,
     bs.backup_start_date,

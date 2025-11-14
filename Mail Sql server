@@ -1,0 +1,112 @@
+🧩 Exemple de test rapide PowerShell
+
+Pour vérifier si ton serveur n’accepte que SMTPS :
+
+Test-NetConnection smtp.exemple.com -Port 465
+Test-NetConnection smtp.exemple.com -Port 587
+
+
+Et pour tester STARTTLS :
+
+openssl s_client -starttls smtp -connect smtp.exemple.com:587
+
+
+Si le 587 ne répond pas ou refuse STARTTLS → Database Mail ne pourra pas se connecter directement.
+
+
+
+
+
+
+⚙️ Configuration à utiliser dans SSMS
+Champ	Valeur
+Serveur SMTP	smtp.tonserveur.com
+Port	587
+SSL activé	✅ Oui (case à cocher dans le wizard Database Mail)
+Authentification	Login / mot de passe de ton compte SMTP
+
+
+
+
+
+Exemple SQL (si tu préfères par script)
+EXEC msdb.dbo.sysmail_add_account_sp
+    @account_name = 'Compte_SMTP_SECURE',
+    @description  = 'Compte mail SQL Server avec STARTTLS (port 587)',
+    @email_address = 'sqlserver@tondomaine.com',
+    @display_name  = 'SQL Server',
+    @mailserver_name = 'smtp.tonserveur.com',
+    @port = 587,
+    @enable_ssl = 1,                -- STARTTLS
+    @username = 'sqlserver@tondomaine.com',
+    @password = 'TonMotDePasseIci';
+
+✅ Vérification après test d’envoi
+
+Dans SSMS :
+
+EXEC msdb.dbo.sp_send_dbmail
+    @profile_name = 'Profil_SQL_SECURE',
+    @recipients = 'ton.email@exemple.com',
+    @subject = '✅ Test Database Mail STARTTLS (587)',
+    @body = 'Email envoyé avec chiffrement STARTTLS.';
+
+
+Puis contrôle :
+
+SELECT * FROM msdb.dbo.sysmail_event_log ORDER BY log_date DESC;
+
+
+Si tout est bon → tu verras :
+
+Mail successfully sent.
+
+
+
+
+
+
+
+
+
+
+Vous avez dit :
+Oui
+Vous avez dit :
+Comment configurer smtp starttls sur mon instance sql server
+Vous avez dit :
+Comment je vois l’existant
+Vous avez dit :
+Je suis sur un sql server 2017 et j’ai ce message d’erreur
+Vous avez dit :
+SELECT
+    a.name AS AccountName,
+    a.mailserver_name AS SMTP_Server,
+    a.port,
+    CASE a.enable_ssl WHEN 1 THEN '✅ STARTTLS activé' ELSE '⚠️ Non chiffré' END AS TLS_Status,
+    a.email_address,
+    p.name AS ProfileName
+FROM msdb.dbo.sysmail_account a
+JOIN msdb.dbo.sysmail_profileaccount pa ON a.account_id = pa.account_id
+JOIN msdb.dbo.sysmail_profile p ON pa.profile_id = p.profile_id
+ORDER BY a.name;
+
+Lorsque j’exécute cette requete il me renvoie 
+
+Mag 207, Level 16, State 1, Line 7
+
+Invalid column name 'mailserver_name'
+
+Msg 207, Level 16, State 1, Line B
+
+Invalid column name 'port'.
+
+Msg 207, Level 16, State 1, Line 9
+
+Invalid column name 'enable_ss1'.
+Vous avez dit :
+Moi jai smtp port 25
+Vous avez dit :
+Oui
+Vous avez dit :
+Oui

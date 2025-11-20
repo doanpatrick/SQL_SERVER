@@ -1,3 +1,73 @@
+;WITH SessionInfo AS
+(
+    SELECT
+        s.session_id,
+        COALESCE(r.blocking_session_id, 0) AS blocking_session_id,
+        s.login_name,
+        s.host_name,
+        s.program_name,
+        s.status           AS session_status,
+        r.status           AS request_status,
+        r.command,
+        r.wait_type,
+        r.wait_time,
+        r.cpu_time,
+        r.total_elapsed_time,
+        r.reads,
+        r.writes,
+        DB_NAME(r.database_id) AS database_name
+    FROM sys.dm_exec_sessions s
+    LEFT JOIN sys.dm_exec_requests r
+        ON s.session_id = r.session_id
+    WHERE s.is_user_process = 1          -- seulement les sessions utilisateur
+      AND s.session_id <> @@SPID         -- on exclut ta propre session
+      AND (s.status <> 'sleeping' OR r.session_id IS NOT NULL)  -- sessions actives
+),
+BlockingTree AS
+(
+    -- Racines : sessions non bloquées (ou sans info de blocage)
+    SELECT
+        s.*,
+        CAST(RIGHT('0000' + CAST(s.session_id AS varchar(4)), 4) AS varchar(4000)) AS sort_path,
+        0 AS level
+    FROM SessionInfo s
+    WHERE s.blocking_session_id = 0
+       OR s.blocking_session_id IS NULL
+
+    UNION ALL
+
+    -- Enfants : sessions bloquées par un parent déjà dans l’arbre
+    SELECT
+        c.*,
+        p.sort_path + '-' + RIGHT('0000' + CAST(c.session_id AS varchar(4)), 4),
+        p.level + 1
+    FROM SessionInfo c
+    JOIN BlockingTree p
+        ON c.blocking_session_id = p.session_id
+)
+SELECT
+    REPLICATE('¦   ', level) +
+    CASE WHEN level > 0 THEN '→ ' ELSE '' END +
+    CAST(session_id AS varchar(10)) AS session_tree,   -- arborescence visuelle
+    session_id,
+    blocking_session_id        AS bloque_par,
+    login_name,
+    host_name,
+    program_name,
+    session_status,
+    request_status,
+    command,
+    wait_type,
+    wait_time,
+    cpu_time,
+    total_elapsed_time,
+    reads,
+    writes,
+    database_name
+FROM BlockingTree
+ORDER BY sort_path;
+
+
 voir le role control server
 
 SELECT pr.name, pe.permission_name, pe.state_desc

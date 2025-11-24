@@ -1,23 +1,17 @@
-
-SELECT TOP 20
-    rs.total_duration / NULLIF(rs.count_executions, 0)        AS avg_duration_ms,
-    rs.total_cpu_time / NULLIF(rs.count_executions, 0)        AS avg_cpu_ms,
-    rs.total_logical_reads / NULLIF(rs.count_executions, 0)   AS avg_logical_reads,
-    rs.total_physical_reads / NULLIF(rs.count_executions, 0)  AS avg_physical_reads,
-    qt.query_sql_text,
-    qp.query_plan,
-    rs.count_executions,
-    rs.total_duration,
-    rs.total_logical_reads,
-    rs.total_physical_reads
-FROM sys.query_store_runtime_stats rs
-JOIN sys.query_store_plan qp 
-    ON rs.plan_id = qp.plan_id
-JOIN sys.query_store_query q 
-    ON qp.query_id = q.query_id
-JOIN sys.query_store_query_text qt 
-    ON q.query_text_id = qt.query_text_id
-ORDER BY avg_physical_reads DESC;
+Msg 207, Level 16, State 1, Line 336
+Invalid column name 'total_duration'.
+Msg 207, Level 16, State 1, Line 337
+Invalid column name 'total_cpu_time'.
+Msg 207, Level 16, State 1, Line 338
+Invalid column name 'total_logical_reads'.
+Msg 207, Level 16, State 1, Line 339
+Invalid column name 'total_physical_reads'.
+Msg 207, Level 16, State 1, Line 343
+Invalid column name 'total_duration'.
+Msg 207, Level 16, State 1, Line 344
+Invalid column name 'total_logical_reads'.
+Msg 207, Level 16, State 1, Line 345
+Invalid column name 'total_physical_reads'.
 
 
 ;WITH SessionInfo AS

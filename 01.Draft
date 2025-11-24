@@ -1,4 +1,5 @@
 
+
 /*===========================================================================
   3. Top requêtes consommatrices d'I/O
 ===========================================================================*/
@@ -15,7 +16,7 @@ SELECT TOP 50
     qs.total_worker_time / 1000                        AS total_cpu_ms,
     qs.total_elapsed_time / 1000                       AS total_duration_ms,
     qs.max_elapsed_time / 1000                         AS max_duration_ms,
-    DB_NAME(qs.database_id)                            AS DBName,
+    DB_NAME(st.dbid)                                   AS DBName,   -- ← FIX ICI
     qs.creation_time,
     qs.last_execution_time,
     SUBSTRING(st.text,
@@ -33,12 +34,38 @@ ORDER BY qs.total_physical_reads DESC;
 
 SELECT * FROM #top_queries_phys ORDER BY total_physical_reads DESC;
 
-
-Msg 207, Level 16, State 1, Line 163
-Invalid column name 'database_id'.
+Bloc 3b corrigé – Top requêtes par lectures logiques
 
 
+PRINT '--- 3b. Top requêtes par lectures logiques ---';
 
+IF OBJECT_ID('tempdb..#top_queries_logical') IS NOT NULL DROP TABLE #top_queries_logical;
+
+SELECT TOP 50
+    qs.total_logical_reads,
+    qs.total_physical_reads,
+    qs.total_logical_writes,
+    qs.execution_count,
+    (qs.total_logical_reads + qs.total_physical_reads) AS total_reads,
+    qs.total_worker_time / 1000                        AS total_cpu_ms,
+    qs.total_elapsed_time / 1000                       AS total_duration_ms,
+    DB_NAME(st.dbid)                                   AS DBName,   -- ← FIX ICI
+    qs.creation_time,
+    qs.last_execution_time,
+    SUBSTRING(st.text,
+              (qs.statement_start_offset/2) + 1,
+              ((CASE qs.statement_end_offset
+                   WHEN -1 THEN DATALENGTH(st.text)
+                   ELSE qs.statement_end_offset
+               END - qs.statement_start_offset)/2) + 1) AS query_text,
+    qp.query_plan
+INTO #top_queries_logical
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
+ORDER BY qs.total_logical_reads DESC;
+
+SELECT * FROM #top_queries_logical ORDER BY total_logical_reads DESC;
 
 
 

@@ -1,0 +1,296 @@
+Je vais aller droit au but : on voit très bien qui fait mal et où ça tape.
+
+⸻
+
+1. Ce que raconte la photo globale
+	•	Instance SQL 2017 Enterprise sur un serveur avec 230 Go de RAM, mais SQL est limité à 25 Go (max server memory = 25000).
+	•	SQL utilise à peu près sa limite (25 Go), et l’OS a encore ~34 Go libres → tu pourrais largement donner plus de RAM à SQL si l’instance est dédiée.
+
+Wait stats
+
+Top waits intéressants (cumulés depuis longtemps, mais ça donne la couleur) :
+	•	PAGEIOLATCH_SH = 10,14 %
+	•	PAGEIOLATCH_EX = 4,85 %
+	•	WRITELOG = 1,31 %
+	•	Quelques ASYNC_IO_COMPLETION mais très minoritaire.
+
+Le reste (WAITFOR, QDS_*, LOGMGR_QUEUE, CHECKPOINT_QUEUE…) ce sont surtout des waits “de fond”/idle.
+
+👉 Donc clairement :
+problématique principale = latence lecture (PAGEIOLATCH_SH/EX)
+un peu d’I/O écriture (WRITELOG), mais ce n’est pas le #1.
+
+⸻
+
+2. Où ça tape sur les disques (dm_io_virtual_file_stats)
+
+2.1. Lecture
+
+Les pires en lecture :
+	•	Les fichiers de DB_TDR (sur K:\APP\MSSQL\), avec :
+	•	avg_read_ms ≈ 14 ms et beaucoup d’I/O (plusieurs milliards de lectures).
+	•	Les grosses bases métier sur K: (DB_EVODATA, DB_PMU, DB_EVOBUS) :
+	•	avg_read_ms entre 9 et 13 ms
+	•	Certaines bases historiques (DB_PMU_HISTO sur M:) ont ~17 ms.
+
+Ce ne sont pas des pics ridicules, mais 14 ms de moyenne sur des volumes aussi massifs, plus PAGEIOLATCH élevé, ça fait un système clairement I/O bound en lecture.
+
+2.2. Écriture
+
+Trié par avg_write_ms, on voit :
+	•	DB_SLIB (sur K:) :
+	•	avg_write_ms entre 83 et 100 ms 🤕
+	•	avg_read_ms 4–6 ms → lecture OK, mais écriture catastrophique.
+	•	Les grosses bases métier (TDR, PMU, EVODATA…) :
+	•	avg_write_ms plutôt dans les 12–15 ms → pas super, mais acceptable pour un LUN partagé chargé.
+
+👉 Conclusion disque :
+	•	LUN K: est le gros point chaud (TDR, SLIB, PMU, EVODATA, EVOBUS, etc.).
+	•	DB_SLIB est un gros consommateur en écriture avec des latences monstrueuses.
+	•	DB_TDR et PMU/EVODATA/EVOBUS sont lourdes en lecture (et un peu en écriture) avec des latences moyennes mais sur des volumes gigantesques → ça explique PAGEIOLATCH.
+
+⸻
+
+3. Qui mange la RAM (buffer cache)
+
+Répartition du buffer :
+	•	DB_TDR : ~13 Go (66 % du cache)
+	•	DB_PMU : ~3,9 Go (19 %)
+	•	DB_SLIB : ~1,8 Go (9 %)
+	•	Le reste se partage les miettes.
+
+Et ton max server memory = 25 Go → le buffer pool fait ~20–21 Go.
+
+👉 En gros, 3 bases (TDR, PMU, SLIB) se partagent presque toute la RAM SQL, alors qu’elles représentent des volumes énormes (plusieurs To).
+Résultat :
+	•	Le cache est trop petit par rapport aux volumes accédés.
+	•	SQL doit évacuer des pages souvent → PAGEIOLATCH_SH en hausse, donc beaucoup de lectures disque.
+
+Avec 230 Go de RAM sur la machine, tu pourrais facilement doubler/tripler la mémoire SQL si l’instance est seule.
+
+⸻
+
+4. Top requêtes I/O : qui flingue les disques
+
+4.1. Top physical reads
+
+Les grosses lectures physiques sont surtout sur :
+	•	DB_TDR (largement en tête)
+Exemple : une query avec
+total_physical_reads = 496 636 920 pour 131 exécutions
+total_logical_reads ~ 528 M
+total_duration_ms ~ 4 103 017 ms (≈ 68 min cumulées)
+
+Plusieurs autres queries TDR entre 20–80 M physical reads.
+	•	DB_PMU et DB_EVODATA / EVOBUS ont également des queries très lourdes en I/O, mais TDR domine.
+
+Donc DB_TDR est ton principal générateur d’I/O disque.
+
+4.2. Top logical reads
+
+Côté logical reads :
+	•	DB_SLIB explose tout :
+	•	queries avec ~7,15 milliards de logical reads (!)
+	•	très peu de physical → ça se passe beaucoup en mémoire, mais :
+	•	ça consomme beaucoup de CPU
+	•	ça génère beaucoup d’écritures (et on a vu avg_write_ms ~ 90–100 ms)
+
+Le paquet NULL en DBName côté logical reads vient souvent de requêtes système / internal ou de plans où la dbid n’est pas renseignée, moins prioritaires à ce stade.
+
+👉 En résumé :
+	•	TDR = AMOK sur les lectures physiques.
+	•	SLIB = AMOK sur les lectures logiques + écritures très lentes.
+
+⸻
+
+5. Requêtes actives (dm_exec_requests)
+
+Quelques points marquants :
+	•	session_id 89 : DbccFilesCompact sur tempdb →
+LCK_M_BU sur [ENCRYPTION_SCAN]
+→ SHRINKFILE tempdb avec TDE/chiffrement → très mauvais pour les perfs.
+➜ À stopper / à ne plus planifier en prod si possible.
+	•	session_id 87 (DB_TDR) : gros SELECT INTO #ordrenego
+	•	depuis TBLORDERS avec Time_System >= @DATE_DEBUT / < @DATE_FIN, OwnerDesk IN (...), Type in (...)
+	•	NOLOCK (donc gros scans possibles)
+	•	DENSE_RANK() → fenêtre analytique → peut forcer des gros sorts.
+	•	session_id 110 (DB_TDR) : SELECT TOP (@topLignes) ord.table_Id INTO #EDA_TBLORDERSIds
+	•	FROM TBLORDERS où Date_System >= DATEADD(day, -5, getdate())
+	•	LEFT JOIN TDR_EPRO_EntityProcessing
+	•	WHERE epro.Id is null
+→ typique du batch d’export / rattrapage : gros scan sur TBLORDERS.
+	•	session_id 151 (DB_TDR) : SELECT COUNT(1) FROM TDR_export_messageout WHERE processedOn IS NOT NULL AND processedon BETWEEN @FirstDate AND @LastDate
+	•	sur TDR → si non indexé sur processedOn, c’est un gros scan.
+	•	session_id 73 (DB_SLIB) : Insert Work_SLB_GetExternalExecution ... FROM SLB_EXE_Execution LEFT JOIN SLB_SUR_SUIVIREFERENCE
+→ beaucoup d’écritures SLIB + JOINS → c’est cohérent avec les latences d’écriture.
+
+👉 On voit bien :
+	•	TDR : grosses requêtes d’export / agrégats / SELECT INTO, très consommatrices en I/O.
+	•	SLIB : batch d’insertion avec gros joins, sur une base dont les writes sont déjà très lents.
+
+⸻
+
+6. Tempdb
+	•	8 fichiers data de 9,6 Go sur T:\ → OK en nombre.
+	•	unallocated_MB ~ 76 Go, user_objects 102 Mo, version_store 147 Mo → tempdb loin d’être pleine.
+	•	Quelques waits PAGEIOLATCH_* sur tempdb, mais rien d’affolant.
+	•	Le principal problème tempdb, c’est le SHRINK en cours (session 89).
+
+⸻
+
+7. Analyse synthétique
+
+7.1. Causes probables du pic d’I/O
+	1.	Mémoire SQL insuffisante par rapport au volume de données actives
+	•	SQL n’a que 25 Go sur un host à 230 Go.
+	•	TDR + PMU + SLIB à eux seuls consomment la quasi-totalité du cache.
+	•	Beaucoup de relectures disques → PAGEIOLATCH_SH.
+	2.	Gros workloads I/O sur TDR et PMU / EVODATA / EVOBUS
+	•	Queries d’export/agrégats sur TBLORDERS, TDR_export_messageout, etc.
+	•	Tables massives avec scans fréquents → total_physical_reads très élevé.
+	3.	Base SLIB très écriture-intensive avec latence disque énorme
+	•	avg_write_ms ≈ 90–100 ms sur plusieurs fichiers SLIB.
+	•	batches d’insert (Work_SLB_GetExternalExecution…) qui empilent les writes.
+	4.	LUN K: saturé (toutes les bases lourdes sont dessus)
+	•	TDR, SLIB, PMU, EVODATA, EVOBUS, etc.
+	•	C’est ton gros chauffe-plat I/O.
+	5.	Maintenance inadaptée : SHRINK tempdb
+	•	DbccFilesCompact avec ENCRYPTION_SCAN → ça bloque, ça génère de l’I/O inutile, ça fragmente, ça ne résout rien.
+
+⸻
+
+8. Plan d’action concret
+
+8.1. Actions rapides (à très fort ROI)
+	1.	Augmenter max server memory pour SQL Server
+Si cette instance est quasiment seule sur le serveur, je viserais :
+	•	passer de 25 Go à 80–120 Go comme point de départ.
+	•	garder 30–50 Go pour l’OS/antivirus/agents éventuellement.
+
+
+EXEC sp_configure 'show advanced options', 1;
+RECONFIGURE;
+EXEC sp_configure 'max server memory (MB)', 100000; -- exemple 100 Go
+RECONFIGURE;
+
+
+
+➜ Objectif : réduire drastiquement les lectures disque sur TDR/PMU/SLIB → baisse de PAGEIOLATCH_SH.
+
+	2.	Arrêter et proscrire les SHRINK sur tempdb
+	•	Stopper la session 89 (KILL 89) si possible en période de calme.
+	•	Supprimer toute tâche de maintenance qui fait DBCC SHRINKFILE/SHRINKDATABASE sur tempdb ou les bases actives.
+	3.	Index sur les queries TDR les plus violentes
+a) TDR_export_messageout(processedOn) :
+
+
+CREATE NONCLUSTERED INDEX IX_TDR_export_messageout_ProcessedOn
+ON TDR_export_messageout(processedOn)
+WHERE processedOn IS NOT NULL;
+
+CREATE NONCLUSTERED INDEX IX_TDR_export_messageout_ProcessedOn
+ON TDR_export_messageout(processedOn)
+WHERE processedOn IS NOT NULL;
+
+(Filtré, on est en Enterprise → parfait pour le COUNT avec date range.)
+b) TBLORDERS (Time_System, OwnerDesk, Type) :
+
+
+
+CREATE NONCLUSTERED INDEX IX_TBLORDERS_TimeSystem_Desk_Type
+ON TBLORDERS(Time_System, OwnerDesk, Type)
+INCLUDE (OrderId, RefInstrument, Quantity_Size, Side, Price_Limit, ClientId, table_Id, Price_avg);
+
+
+
+c) TBLORDERS (Date_System, table_Id) pour la query Date_System >= DATEADD(day,-5, getdate()) :
+
+
+CREATE NONCLUSTERED INDEX IX_TBLORDERS_DateSystem_TableId
+ON TBLORDERS(Date_System, table_Id);
+
+
+d) TDR_EPRO_EntityProcessing pour le LEFT JOIN Entity = 'EDA_TBLORDERS' AND EntityId = ord.table_Id :
+
+CREATE NONCLUSTERED INDEX IX_TDR_EPRO_Entity_EntityId
+ON TDR_EPRO_EntityProcessing(Entity, EntityId)
+INCLUDE (Id);
+
+
+➜ Objectif : éviter les scans massifs TBLORDERS / TDR_export_messageout.
+
+	4.	Vérifier / réduire la fréquence des batchs gourmands TDR
+	•	Revoir la fréquence de lancement des gros SELECT INTO (#ordrenego, #EDA_TBLORDERSIds).
+	•	Idéalement les séquencer ou les déplacer en heures creuses si ce n’est pas déjà le cas.
+
+⸻
+
+8.2. Actions infra / stockage
+	1.	Discuter du LUN K:\ avec l’équipe infra
+Points à vérifier :
+	•	IOPS / latence vue côté SAN/ESXi sur K: (lectures & écritures).
+	•	d’autres VM tapent sur le même datastore ?
+	•	QoS / priorisation possible pour cette instance ?
+Objectif : faire descendre les latences :
+	•	en lecture idéalement < 5–8 ms
+	•	en écriture < 10 ms.
+	2.	Isoler SLIB sur un volume plus adapté
+Vu les avg_write_ms de SLIB, je recommanderais :
+	•	soit déplacer SLIB (ou au moins ses fichiers les plus chauds) sur un LUN dédié plus performant,
+	•	soit alléger ses batchs (voir plus bas).
+
+⸻
+
+8.3. Actions sur SLIB (batchs ETL très lourds)
+	1.	Analyser les plans des queries SLIB top logical reads
+	•	Notamment les SELECT/INSERT que tu m’as montrés (Work_SLB_GetExternalExecution, etc.).
+	•	Chercher :
+	•	scans sur SLB_EXE_Execution,
+	•	join vers SLB_SUR_SUIVIREFERENCE mal indexé.
+	2.	Ajouter des index ciblés
+Par exemple, pour :
+
+
+FROM SLB_EXE_Execution EXE
+LEFT JOIN SLB_SUR_SUIVIREFERENCE SUR
+      ON SUR.SUR_ENTITE = 'EXECUTION'
+     AND SUR_REFERENCE = TradeId
+     AND SUR.SUR_DHCREATION > convert(date,dateadd(day,-5,getdate()),112)
+WHERE SUR_ID IS NULL
+  AND EXE.InstrumentId IS NOT NULL
+  AND EXE.CreatedOn > convert(date,dateadd(day,-5,getdate()),112)
+
+
+On peut imaginer :
+
+	CREATE NONCLUSTERED INDEX IX_SLB_EXE_Execution_CreatedOn_InstrumentId
+ON SLB_EXE_Execution(CreatedOn, InstrumentId)
+INCLUDE (TradeId, customDatas);
+
+CREATE NONCLUSTERED INDEX IX_SLB_SUR_SUIVIREFERENCE_Entite_Reference_DHC
+ON SLB_SUR_SUIVIREFERENCE(SUR_ENTITE, SUR_REFERENCE, SUR_DHCREATION)
+INCLUDE (SUR_ID);
+
+Ça dépend de la réalité, mais l’idée est là.
+
+	3.	Limiter le volume par batch
+	•	Si possible, travailler par fenêtrage temporel plus fin (par jour, par heure) plutôt que de gros rattrapages de plusieurs jours/semaines.
+	•	Ça réduit le pic I/O et la taille des temp tables.
+
+⸻
+
+9. Pour la suite
+
+Si tu veux, on peut faire encore plus ciblé :
+	1.	Tu me colles le texte complet de 2–3 des pires queries :
+	•	1–2 sur DB_TDR (celles à 400–500M physical reads),
+	•	1 sur DB_SLIB (top logical reads ou celle de Work_SLB_GetExternalExecution),
+	2.	Je te propose :
+	•	index précis (clé + INCLUDE),
+	•	éventuellement une réécriture de la requête pour limiter les scans (CTE, fenêtrage, pré-filtrage, etc.).
+
+Mais déjà, même sans ça, tes gros leviers immédiats sont :
+	•	Augmenter la mémoire SQL (très important ici).
+	•	Stopper les SHRINK.
+	•	Indexer / optimiser les gros batchs TDR + SLIB.
+	•	Discuter du LUN K: avec l’infra.

@@ -1,0 +1,551 @@
+✅ 1. Vérifier que c’est bien un problème d’I/O et quantifier
+
+Avant d’accuser le stockage, on commence par les indicateurs SQL Server.
+
+📌 Query Store (si activé)
+
+Chercher les plans/requêtes les plus coûteuses en logical reads, physical reads, write IOs.
+
+SELECT TOP 20
+    qsrs.total_physical_reads,
+    qsrs.total_logical_reads,
+    qsrs.total_logical_writes,
+    qsq.query_sql_text,
+    qsp.query_plan
+FROM sys.query_store_runtime_stats qsrs
+JOIN sys.query_store_plan qsp ON qsrs.plan_id = qsp.plan_id
+JOIN sys.query_store_query_text qsq ON qsp.query_id = qsq.query_id
+ORDER BY qsrs.total_physical_reads DESC;
+
+
+✅ 2. Vérifier les temps d’attente liés au disque (waits)
+
+Les waits sont ton premier “radar”.
+
+SELECT TOP 15 wait_type, wait_time_ms/1000.0 AS wait_s
+FROM sys.dm_os_wait_stats
+WHERE wait_time_ms > 0
+ORDER BY wait_time_ms DESC;
+
+
+Signe d’un problème I/O :
+	•	PAGEIOLATCH_SH / EX → lenteur LECTURE disque (data files)
+	•	WRITELOG → lenteur écriture log (transactions)
+	•	IO_COMPLETION → I/O général
+	•	ASYNC_IO_COMPLETION → opérations d’I/O asynchrones
+
+👉 S’ils sont en haut : problème de stockage ou de requêtes gourmandes.
+
+
+✅ 3. Voir quelles requêtes provoquent le plus de reads/IO
+
+Très efficace en temps réel : DMVs.
+
+SELECT TOP 20
+    qs.total_logical_reads,
+    qs.total_physical_reads,
+    qs.total_logical_writes,
+    qs.execution_count,
+    SUBSTRING(st.text, qs.statement_start_offset/2,
+              (CASE WHEN qs.statement_end_offset = -1
+                    THEN LEN(st.text) * 2
+                    ELSE qs.statement_end_offset
+               END - qs.statement_start_offset)/2) AS query_text
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+ORDER BY qs.total_physical_reads DESC;
+
+
+✅ 4. Analyse des fichiers/disques
+
+Pour voir si le problème vient du fichier data/log, des tempdb, ou du volume SAN/VM.
+
+📌 I/O par fichier SQL
+
+SELECT 
+    DB_NAME(database_id) AS DBName,
+    file_id,
+    num_of_reads,
+    num_of_writes,
+    io_stall_read_ms,
+    io_stall_write_ms,
+    io_stall_read_ms / NULLIF(num_of_reads,0) AS avg_read_ms,
+    io_stall_write_ms / NULLIF(num_of_writes,0) AS avg_write_ms,
+    physical_name
+FROM sys.dm_io_virtual_file_stats(NULL, NULL)
+ORDER BY avg_read_ms DESC;
+
+
+Indicateurs
+	•	avg_read_ms > 15 ms ⇒ stockage lent
+	•	avg_write_ms > 5–10 ms ⇒ problème côté log ou SAN
+
+⸻
+
+✅ 5. Analyse TempDB
+
+Souvent négligée mais très fréquente pour les pics I/O.
+
+À vérifier :
+	•	Nombre de fichiers = nombre de vCPU logique / 2
+	•	Contention sur PFS, SGAM, GAM ?
+
+
+SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'PAGE%LATCH%';
+
+Si tu vois PFS / SGAM / GAM → il faut :
+	•	augmenter le nombre de fichiers tempdb
+	•	répartir sur disques rapides
+
+
+✅ 6. Vérifier les opérations lourdes (maintenance)
+
+À vérifier dans l’historique :
+	•	Rebuild index
+	•	CheckDB
+	•	Backups full / diff / log
+	•	Import massif (SSIS)
+	•	Large delete/update
+
+SELECT 
+    command,
+    percent_complete,
+    start_time,
+    DATEDIFF(minute, start_time, GETDATE()) AS minutes_running
+FROM sys.dm_exec_requests
+WHERE percent_complete > 0;
+
+✅ 7. Vérifier si c’est un problème de mémoire (souvent confondu avec I/O)
+
+Une instance qui manque de RAM va générer beaucoup de PAGEIOLATCH → faux problème I/O.
+
+SELECT 
+    total_physical_memory_kb/1024 AS TotalRAM_MB,
+    available_physical_memory_kb/1024 AS AvailableRAM_MB
+FROM sys.dm_os_sys_memory;
+
+
+Et côté cache buffer :
+
+
+SELECT 
+    COUNT(*) AS buffer_pages,
+    COUNT(*)*8/1024 AS buffer_MB
+FROM sys.dm_os_buffer_descriptors;
+
+
+✅ 8. Vérifier le niveau VM / SAN
+
+Si VM :
+	•	Trop de co-stop ?
+	•	Oversubscription CPU ?
+	•	Contention de datastore ?
+	•	Latence IOPS confirmée par l’hyperviseur ?
+
+Si SAN :
+	•	Queue depth insuffisant ?
+	•	FlashCache saturé ?
+	•	RAID en reconstruction ?
+
+👉 Ici, il faut souvent une capture Windows perfmon ou mesures ESXi.
+
+
+
+🎯 PLAN D’ACTION CONCRET
+
+Voici comment je te conseille de procéder dans l’ordre, pour aller vite :
+
+⸻
+
+🔥 Étape A — Diagnostiquer en 5 minutes
+	1.	Attentes (waits)
+	2.	DMV I/O par fichier
+	3.	Top queries (reads)
+	4.	TempDB et log
+
+⸻
+
+🔥 Étape B — Isoler la cause
+
+Selon ce que tu trouves :
+
+📌 Cas 1 : PAGEIOLATCH → Problème lecture data
+
+➡️ Index manquants, requêtes pourries, manque de RAM, disque lent
+
+📌 Cas 2 : WRITELOG → Problème log
+
+➡️ Volume log trop lent, trop de petites transactions, autogrowth log
+
+📌 Cas 3 : IO_COMPLETION → SAN/VM
+
+➡️ Vérifier hyperviseur + perfmon
+
+📌 Cas 4 : TempDB saturée
+
+➡️ Ajouter fichiers + activer TF1118 si version < 2016
+
+⸻
+
+🔥 Étape C — Correction
+
+Je pourrai te fournir la solution exacte dès que tu m’envoies :
+
+🔹 résultat des top waits
+🔹 résultat de dm_io_virtual_file_stats
+🔹 résultat des top queries physical reads
+🔹 version SQL Server + paramètre RAM + configuration VM
+🔹 workload (OLTP, batch, ETL…)
+
+
+*********+***********************************
+
+script automatique d'audit
+
+dans Ssms
+
+/*============================================================================
+    SCRIPT D'AUDIT I/O & PERFORMANCE - SQL Server
+    Auteur : ChatGPT (adapté pour analyse pics d'I/O)
+    Compatibilité : SQL Server 2012+ (optimisé 2016-2022)
+============================================================================*/
+
+SET NOCOUNT ON;
+PRINT '=== DEBUT AUDIT I/O & PERFORMANCE ===';
+
+/*===========================================================================
+  0. Info instance & config mémoire
+===========================================================================*/
+PRINT '--- 0. Informations instance & mémoire ---';
+
+SELECT  
+    @@SERVERNAME             AS InstanceName,
+    SERVERPROPERTY('ProductVersion') AS ProductVersion,
+    SERVERPROPERTY('Edition')        AS Edition,
+    SERVERPROPERTY('EngineEdition')  AS EngineEdition,
+    SERVERPROPERTY('IsClustered')    AS IsClustered,
+    SERVERPROPERTY('MachineName')    AS MachineName,
+    SERVERPROPERTY('IsHadrEnabled')  AS IsHadrEnabled;
+
+SELECT 
+    name,
+    value_in_use,
+    value,
+    description
+FROM sys.configurations
+WHERE name IN ('max server memory (MB)', 'min server memory (MB)', 'cost threshold for parallelism', 'max degree of parallelism')
+ORDER BY name;
+
+IF OBJECT_ID('tempdb..#mem_sys') IS NOT NULL DROP TABLE #mem_sys;
+IF OBJECT_ID('tempdb..#mem_proc') IS NOT NULL DROP TABLE #mem_proc;
+
+SELECT *
+INTO #mem_sys
+FROM sys.dm_os_sys_memory;
+
+SELECT *
+INTO #mem_proc
+FROM sys.dm_os_process_memory;
+
+SELECT 
+    total_physical_memory_kb / 1024 AS TotalRAM_MB,
+    available_physical_memory_kb / 1024 AS AvailableRAM_MB,
+    system_memory_state_desc
+FROM #mem_sys;
+
+SELECT 
+    physical_memory_in_use_kb / 1024 AS SQLMemoryUsed_MB,
+    large_page_allocations_kb / 1024 AS LargePages_MB,
+    locked_page_allocations_kb / 1024 AS LockedPages_MB,
+    process_physical_memory_low,
+    process_virtual_memory_low
+FROM #mem_proc;
+
+/*===========================================================================
+  1. Wait stats (focalisé I/O)
+===========================================================================*/
+PRINT '--- 1. Top wait stats (focalisé I/O) ---';
+/*
+    NOTE : si tu veux repartir de zéro pour un pic en live :
+    -- DBCC SQLPERF('sys.dm_os_wait_stats', CLEAR);
+*/
+
+IF OBJECT_ID('tempdb..#waits') IS NOT NULL DROP TABLE #waits;
+
+SELECT TOP 50
+    wait_type,
+    wait_time_ms,
+    signal_wait_time_ms,
+    waiting_tasks_count,
+    CAST(wait_time_ms * 1.0 / SUM(wait_time_ms) OVER() * 100.0 AS DECIMAL(5,2)) AS pct_total_wait_time
+INTO #waits
+FROM sys.dm_os_wait_stats
+WHERE wait_time_ms > 0
+  AND wait_type NOT LIKE 'SLEEP%'
+  AND wait_type NOT LIKE 'XE_TIMER%'
+  AND wait_type NOT LIKE 'BROKER_%'
+  AND wait_type NOT IN (
+        'CLR_SEMAPHORE','LAZYWRITER_SLEEP','RESOURCE_QUEUE',
+        'SQLTRACE_BUFFER_FLUSH','FT_IFTS_SCHEDULER_IDLE_WAIT',
+        'XE_DISPATCHER_WAIT','XE_DISPATCHER_JOIN','BROKER_EVENTHANDLER',
+        'BROKER_RECEIVE_WAITFOR','BROKER_TASK_STOP','BROKER_TO_FLUSH',
+        'BROKER_TRANSMITTER','DISPATCHER_QUEUE_SEMAPHORE',
+        'FT_IFTSHC_MUTEX','CLR_AUTO_EVENT','CLR_MANUAL_EVENT',
+        'DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION',
+        'HADR_LOGCAPTURE_WAIT','HADR_NOTIFICATION_DEQUEUE',
+        'HADR_TIMER_TASK','HADR_WORK_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH',
+        'XE_TIMER_EVENT','SP_SERVER_DIAGNOSTICS_SLEEP'
+    )
+ORDER BY wait_time_ms DESC;
+
+SELECT *
+FROM #waits
+ORDER BY wait_time_ms DESC;
+
+/* Focus I/O spécifiques */
+PRINT '--- 1b. Waits I/O only (PAGEIOLATCH, WRITELOG, IO_COMPLETION, ASYNC_IO_COMPLETION) ---';
+
+SELECT *
+FROM #waits
+WHERE wait_type IN ('PAGEIOLATCH_SH','PAGEIOLATCH_EX','PAGEIOLATCH_UP',
+                    'WRITELOG','IO_COMPLETION','ASYNC_IO_COMPLETION')
+ORDER BY wait_time_ms DESC;
+
+/*===========================================================================
+  2. I/O par fichier (latences)
+===========================================================================*/
+PRINT '--- 2. Statistiques I/O par fichier (dm_io_virtual_file_stats) ---';
+
+IF OBJECT_ID('tempdb..#iofiles') IS NOT NULL DROP TABLE #iofiles;
+
+SELECT 
+    DB_NAME(vfs.database_id)                          AS DBName,
+    mf.type_desc                                      AS FileType,
+    vfs.file_id,
+    mf.physical_name,
+    vfs.num_of_reads,
+    vfs.num_of_writes,
+    vfs.num_of_bytes_read,
+    vfs.num_of_bytes_written,
+    vfs.io_stall_read_ms,
+    vfs.io_stall_write_ms,
+    vfs.io_stall_read_ms / NULLIF(vfs.num_of_reads,0)   AS avg_read_ms,
+    vfs.io_stall_write_ms / NULLIF(vfs.num_of_writes,0) AS avg_write_ms,
+    (vfs.num_of_reads + vfs.num_of_writes)              AS total_io,
+    vfs.io_stall                                       AS total_stall_ms
+INTO #iofiles
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) vfs
+JOIN sys.master_files mf 
+  ON vfs.database_id = mf.database_id
+ AND vfs.file_id     = mf.file_id;
+
+-- Tri par latence lecture
+SELECT TOP 50 *
+FROM #iofiles
+ORDER BY avg_read_ms DESC;
+
+-- Tri par latence écriture
+SELECT TOP 50 *
+FROM #iofiles
+ORDER BY avg_write_ms DESC;
+
+/*===========================================================================
+  3. Top requêtes consommatrices d'I/O
+===========================================================================*/
+PRINT '--- 3. Top requêtes par lectures physiques (depuis plan cache) ---';
+
+IF OBJECT_ID('tempdb..#top_queries_phys') IS NOT NULL DROP TABLE #top_queries_phys;
+
+SELECT TOP 50
+    qs.total_physical_reads,
+    qs.total_logical_reads,
+    qs.total_logical_writes,
+    qs.execution_count,
+    (qs.total_physical_reads + qs.total_logical_reads) AS total_reads,
+    qs.total_worker_time / 1000                        AS total_cpu_ms,
+    qs.total_elapsed_time / 1000                       AS total_duration_ms,
+    qs.max_elapsed_time / 1000                         AS max_duration_ms,
+    DB_NAME(qs.database_id)                            AS DBName,
+    qs.creation_time,
+    qs.last_execution_time,
+    SUBSTRING(st.text,
+              (qs.statement_start_offset/2) + 1,
+              ((CASE qs.statement_end_offset
+                   WHEN -1 THEN DATALENGTH(st.text)
+                   ELSE qs.statement_end_offset
+               END - qs.statement_start_offset)/2) + 1) AS query_text,
+    qp.query_plan
+INTO #top_queries_phys
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
+ORDER BY qs.total_physical_reads DESC;
+
+SELECT * FROM #top_queries_phys ORDER BY total_physical_reads DESC;
+
+PRINT '--- 3b. Top requêtes par lectures logiques ---';
+
+IF OBJECT_ID('tempdb..#top_queries_logical') IS NOT NULL DROP TABLE #top_queries_logical;
+
+SELECT TOP 50
+    qs.total_logical_reads,
+    qs.total_physical_reads,
+    qs.total_logical_writes,
+    qs.execution_count,
+    (qs.total_logical_reads + qs.total_physical_reads) AS total_reads,
+    qs.total_worker_time / 1000                        AS total_cpu_ms,
+    qs.total_elapsed_time / 1000                       AS total_duration_ms,
+    DB_NAME(qs.database_id)                            AS DBName,
+    qs.creation_time,
+    qs.last_execution_time,
+    SUBSTRING(st.text,
+              (qs.statement_start_offset/2) + 1,
+              ((CASE qs.statement_end_offset
+                   WHEN -1 THEN DATALENGTH(st.text)
+                   ELSE qs.statement_end_offset
+               END - qs.statement_start_offset)/2) + 1) AS query_text,
+    qp.query_plan
+INTO #top_queries_logical
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
+ORDER BY qs.total_logical_reads DESC;
+
+SELECT * FROM #top_queries_logical ORDER BY total_logical_reads DESC;
+
+/*===========================================================================
+  4. Requêtes ACTIVES avec waits (vue temps réel)
+===========================================================================*/
+PRINT '--- 4. Requêtes ACTIVES (dm_exec_requests) avec waits en cours ---';
+
+SELECT
+    r.session_id,
+    r.status,
+    r.command,
+    r.wait_type,
+    r.wait_time,
+    r.wait_resource,
+    r.blocking_session_id,
+    r.cpu_time,
+    r.total_elapsed_time,
+    DB_NAME(r.database_id) AS DBName,
+    SUBSTRING(t.text,
+              (r.statement_start_offset/2) + 1,
+              ((CASE r.statement_end_offset
+                   WHEN -1 THEN DATALENGTH(t.text)
+                   ELSE r.statement_end_offset
+               END - r.statement_start_offset)/2) + 1) AS running_statement,
+    t.text AS full_batch_text,
+    qp.query_plan
+FROM sys.dm_exec_requests r
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
+OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) qp
+WHERE r.session_id <> @@SPID
+ORDER BY r.total_elapsed_time DESC;
+
+/*===========================================================================
+  5. TempDB : usage et contention potentielles
+===========================================================================*/
+PRINT '--- 5. TempDB : fichiers et espace ---';
+
+USE tempdb;
+
+SELECT 
+    name,
+    type_desc,
+    physical_name,
+    size * 8 / 1024 AS size_MB,
+    max_size,
+    growth,
+    is_percent_growth
+FROM sys.database_files
+ORDER BY type_desc, file_id;
+
+PRINT '--- 5b. TempDB : consommation d''espace globale ---';
+
+SELECT 
+    SUM(user_object_reserved_page_count)*8/1024 AS user_objects_MB,
+    SUM(internal_object_reserved_page_count)*8/1024 AS internal_objects_MB,
+    SUM(version_store_reserved_page_count)*8/1024 AS version_store_MB,
+    SUM(unallocated_extent_page_count)*8/1024 AS unallocated_MB,
+    SUM(mixed_extent_page_count)*8/1024 AS mixed_extent_MB
+FROM sys.dm_db_file_space_usage;
+
+PRINT '--- 5c. TempDB : utilisation par session (depuis le dernier démarrage) ---';
+
+SELECT TOP 50
+    tsu.session_id,
+    tsu.request_id,
+    tsu.user_objects_alloc_page_count * 8 / 1024 AS user_objects_MB,
+    tsu.internal_objects_alloc_page_count * 8 / 1024 AS internal_objects_MB,
+    s.host_name,
+    s.program_name,
+    s.login_name
+FROM sys.dm_db_task_space_usage tsu
+JOIN sys.dm_exec_sessions s
+  ON tsu.session_id = s.session_id
+ORDER BY (tsu.user_objects_alloc_page_count + tsu.internal_objects_alloc_page_count) DESC;
+
+PRINT '--- 5d. Attentes liées aux PAGES (pour détection contention TempDB) ---';
+
+SELECT 
+    wt.session_id,
+    wt.wait_type,
+    wt.wait_duration_ms,
+    wt.blocking_session_id,
+    wt.resource_description
+FROM sys.dm_os_waiting_tasks wt
+WHERE wt.wait_type LIKE 'PAGE%LATCH%'
+ORDER BY wt.wait_duration_ms DESC;
+
+/*===========================================================================
+  6. Buffer cache par base (pour voir qui consomme la RAM)
+===========================================================================*/
+PRINT '--- 6. Répartition du buffer cache par base ---';
+
+;WITH BufferByDB AS
+(
+    SELECT 
+        database_id,
+        COUNT(*) AS page_count
+    FROM sys.dm_os_buffer_descriptors
+    WHERE database_id <> 32767  -- exclut ResourceDB
+    GROUP BY database_id
+)
+SELECT 
+    DB_NAME(database_id) AS DBName,
+    page_count,
+    page_count * 8 / 1024 AS buffer_MB,
+    CAST(page_count * 8.0 / 1024.0 /
+         NULLIF(SUM(page_count * 8.0 / 1024.0) OVER(),0) * 100.0 AS DECIMAL(5,2)) AS pct_buffer
+FROM BufferByDB
+ORDER BY buffer_MB DESC;
+
+/*===========================================================================
+  7. (Optionnel) Query Store si disponible (par base)
+     -> à exécuter ensuite dans la base cible, si Query Store actif.
+===========================================================================*/
+PRINT '--- 7. NOTE : Pour Query Store, exécute ce bloc dans la base concernée ---';
+PRINT '--- Exemple (à copier dans la base utilisateur) : ';
+PRINT '
+SELECT TOP 20
+    rs.avg_duration,
+    rs.avg_cpu_time,
+    rs.avg_logical_reads,
+    rs.avg_physical_reads,
+    qt.query_sql_text,
+    qp.query_plan
+FROM sys.query_store_runtime_stats rs
+JOIN sys.query_store_plan qp ON rs.plan_id = qp.plan_id
+JOIN sys.query_store_query q ON qp.query_id = q.query_id
+JOIN sys.query_store_query_text qt ON q.query_text_id = qt.query_text_id
+ORDER BY rs.avg_physical_reads DESC;
+';
+
+/*===========================================================================
+  FIN
+===========================================================================*/
+PRINT '=== FIN AUDIT I/O & PERFORMANCE ===';
+SET NOCOUNT OFF;
+
+

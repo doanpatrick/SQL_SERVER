@@ -1,17 +1,36 @@
-Msg 207, Level 16, State 1, Line 336
-Invalid column name 'total_duration'.
-Msg 207, Level 16, State 1, Line 337
-Invalid column name 'total_cpu_time'.
-Msg 207, Level 16, State 1, Line 338
-Invalid column name 'total_logical_reads'.
-Msg 207, Level 16, State 1, Line 339
-Invalid column name 'total_physical_reads'.
-Msg 207, Level 16, State 1, Line 343
-Invalid column name 'total_duration'.
-Msg 207, Level 16, State 1, Line 344
-Invalid column name 'total_logical_reads'.
-Msg 207, Level 16, State 1, Line 345
-Invalid column name 'total_physical_reads'.
+/* Top 20 requêtes par I/O logique/physique via Query Store (SQL 2017) */
+
+SELECT TOP 20
+    rs.avg_duration / 1000.0           AS avg_duration_ms,
+    rs.avg_cpu_time / 1000.0           AS avg_cpu_ms,
+    rs.avg_logical_io_reads            AS avg_logical_io_reads_pages,
+    rs.avg_logical_io_writes           AS avg_logical_io_writes_pages,
+    rs.avg_physical_io_reads           AS avg_physical_io_reads_pages,
+    rs.avg_num_physical_io_reads       AS avg_physical_io_reads_ops,
+    rs.count_executions,
+    rs.last_execution_time,
+    qt.query_sql_text,
+    qp.query_plan
+FROM sys.query_store_runtime_stats       AS rs
+JOIN sys.query_store_plan                AS qp ON rs.plan_id = qp.plan_id
+JOIN sys.query_store_query               AS q  ON qp.query_id = q.query_id
+JOIN sys.query_store_query_text          AS qt ON q.query_text_id = qt.query_text_id
+WHERE rs.execution_type = 0  -- exécutions "Regular"
+ORDER BY rs.avg_physical_io_reads DESC;  -- ou avg_logical_io_reads selon ton focus
+
+Remarques :
+	•	avg_duration et avg_cpu_time sont en microsecondes, donc je divise par 1000 pour avoir des millisecondes.
+	•	Les *_io_reads sont en pages de 8 Ko, avg_num_physical_io_reads en nombre d’IOs.  ￼
+
+Intégration propre dans ton script d’audit
+
+Dans ta grosse procédure d’audit, au lieu de faire un PRINT avec le bloc texte, tu peux mettre à la fin :
+
+PRINT '--- 7. Query Store (à exécuter dans chaque base avec QS actif) ---';
+PRINT '--- Exemple : USE MaBase; puis exécuter le bloc suivant ---';
+
+et garder ce SELECT comme un bloc séparé à lancer base par base (Query Store étant par base, pas au niveau instance).
+
 
 
 ;WITH SessionInfo AS

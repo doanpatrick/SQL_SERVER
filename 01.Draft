@@ -1,43 +1,23 @@
 
-
-/*===========================================================================
-  7. (Optionnel) Query Store si disponible (par base)
-     -> à exécuter ensuite dans la base cible, si Query Store actif.
-===========================================================================*/
-PRINT '--- 7. NOTE : Pour Query Store, exécute ce bloc dans la base concernée ---';
-PRINT '--- Exemple (à copier dans la base utilisateur) : ';
-PRINT '
 SELECT TOP 20
-    rs.avg_duration,
-    rs.avg_cpu_time,
-    rs.avg_logical_reads,
-    rs.avg_physical_reads,
+    rs.total_duration / NULLIF(rs.count_executions, 0)        AS avg_duration_ms,
+    rs.total_cpu_time / NULLIF(rs.count_executions, 0)        AS avg_cpu_ms,
+    rs.total_logical_reads / NULLIF(rs.count_executions, 0)   AS avg_logical_reads,
+    rs.total_physical_reads / NULLIF(rs.count_executions, 0)  AS avg_physical_reads,
     qt.query_sql_text,
-    qp.query_plan
+    qp.query_plan,
+    rs.count_executions,
+    rs.total_duration,
+    rs.total_logical_reads,
+    rs.total_physical_reads
 FROM sys.query_store_runtime_stats rs
-JOIN sys.query_store_plan qp ON rs.plan_id = qp.plan_id
-JOIN sys.query_store_query q ON qp.query_id = q.query_id
-JOIN sys.query_store_query_text qt ON q.query_text_id = qt.query_text_id
-ORDER BY rs.avg_physical_reads DESC;
-';
-
-/*===========================================================================
-  FIN
-===========================================================================*/
-
-
-
-Msg 207, Level 16, State 1, Line 338
-Invalid column name 'avg_logical_reads'.
-Msg 207, Level 16, State 1, Line 339
-Invalid column name 'avg_physical_reads'.
-Msg 207, Level 16, State 1, Line 346
-Invalid column name 'avg_physical_reads'.
-
-Completion time: 2025-11-24T11:23:14.6935635+01:00
-
-
-
+JOIN sys.query_store_plan qp 
+    ON rs.plan_id = qp.plan_id
+JOIN sys.query_store_query q 
+    ON qp.query_id = q.query_id
+JOIN sys.query_store_query_text qt 
+    ON q.query_text_id = qt.query_text_id
+ORDER BY avg_physical_reads DESC;
 
 
 ;WITH SessionInfo AS

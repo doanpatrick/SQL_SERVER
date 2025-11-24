@@ -1,71 +1,40 @@
 
 
 /*===========================================================================
-  3. Top requêtes consommatrices d'I/O
+  7. (Optionnel) Query Store si disponible (par base)
+     -> à exécuter ensuite dans la base cible, si Query Store actif.
 ===========================================================================*/
-PRINT '--- 3. Top requêtes par lectures physiques (depuis plan cache) ---';
-
-IF OBJECT_ID('tempdb..#top_queries_phys') IS NOT NULL DROP TABLE #top_queries_phys;
-
-SELECT TOP 50
-    qs.total_physical_reads,
-    qs.total_logical_reads,
-    qs.total_logical_writes,
-    qs.execution_count,
-    (qs.total_physical_reads + qs.total_logical_reads) AS total_reads,
-    qs.total_worker_time / 1000                        AS total_cpu_ms,
-    qs.total_elapsed_time / 1000                       AS total_duration_ms,
-    qs.max_elapsed_time / 1000                         AS max_duration_ms,
-    DB_NAME(st.dbid)                                   AS DBName,   -- ← FIX ICI
-    qs.creation_time,
-    qs.last_execution_time,
-    SUBSTRING(st.text,
-              (qs.statement_start_offset/2) + 1,
-              ((CASE qs.statement_end_offset
-                   WHEN -1 THEN DATALENGTH(st.text)
-                   ELSE qs.statement_end_offset
-               END - qs.statement_start_offset)/2) + 1) AS query_text,
+PRINT '--- 7. NOTE : Pour Query Store, exécute ce bloc dans la base concernée ---';
+PRINT '--- Exemple (à copier dans la base utilisateur) : ';
+PRINT '
+SELECT TOP 20
+    rs.avg_duration,
+    rs.avg_cpu_time,
+    rs.avg_logical_reads,
+    rs.avg_physical_reads,
+    qt.query_sql_text,
     qp.query_plan
-INTO #top_queries_phys
-FROM sys.dm_exec_query_stats qs
-CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
-CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
-ORDER BY qs.total_physical_reads DESC;
+FROM sys.query_store_runtime_stats rs
+JOIN sys.query_store_plan qp ON rs.plan_id = qp.plan_id
+JOIN sys.query_store_query q ON qp.query_id = q.query_id
+JOIN sys.query_store_query_text qt ON q.query_text_id = qt.query_text_id
+ORDER BY rs.avg_physical_reads DESC;
+';
 
-SELECT * FROM #top_queries_phys ORDER BY total_physical_reads DESC;
+/*===========================================================================
+  FIN
+===========================================================================*/
 
-Bloc 3b corrigé – Top requêtes par lectures logiques
 
 
-PRINT '--- 3b. Top requêtes par lectures logiques ---';
+Msg 207, Level 16, State 1, Line 338
+Invalid column name 'avg_logical_reads'.
+Msg 207, Level 16, State 1, Line 339
+Invalid column name 'avg_physical_reads'.
+Msg 207, Level 16, State 1, Line 346
+Invalid column name 'avg_physical_reads'.
 
-IF OBJECT_ID('tempdb..#top_queries_logical') IS NOT NULL DROP TABLE #top_queries_logical;
-
-SELECT TOP 50
-    qs.total_logical_reads,
-    qs.total_physical_reads,
-    qs.total_logical_writes,
-    qs.execution_count,
-    (qs.total_logical_reads + qs.total_physical_reads) AS total_reads,
-    qs.total_worker_time / 1000                        AS total_cpu_ms,
-    qs.total_elapsed_time / 1000                       AS total_duration_ms,
-    DB_NAME(st.dbid)                                   AS DBName,   -- ← FIX ICI
-    qs.creation_time,
-    qs.last_execution_time,
-    SUBSTRING(st.text,
-              (qs.statement_start_offset/2) + 1,
-              ((CASE qs.statement_end_offset
-                   WHEN -1 THEN DATALENGTH(st.text)
-                   ELSE qs.statement_end_offset
-               END - qs.statement_start_offset)/2) + 1) AS query_text,
-    qp.query_plan
-INTO #top_queries_logical
-FROM sys.dm_exec_query_stats qs
-CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
-CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
-ORDER BY qs.total_logical_reads DESC;
-
-SELECT * FROM #top_queries_logical ORDER BY total_logical_reads DESC;
+Completion time: 2025-11-24T11:23:14.6935635+01:00
 
 
 

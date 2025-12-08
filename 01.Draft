@@ -1,3 +1,52 @@
+SELECT TOP 20
+    qs.session_id,
+    qs.total_reserved_tempdb_pages * 8 / 1024 AS TotalTempdbMB,
+    qs.total_used_tempdb_pages * 8 / 1024 AS UsedTempdbMB,
+    qs.execution_count,
+    qs.last_execution_time,
+    SUBSTRING(st.text, (qs.statement_start_offset/2)+1,
+                     (CASE qs.statement_end_offset
+                        WHEN -1 THEN DATALENGTH(st.text)
+                        ELSE qs.statement_end_offset
+                      END - qs.statement_start_offset)/2 + 1) AS query_text,
+    qp.query_plan
+FROM sys.dm_exec_query_stats AS qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
+WHERE qs.total_reserved_tempdb_pages > 0
+ORDER BY qs.total_reserved_tempdb_pages DESC;
+
+
+
+
+
+
+
+SELECT 
+    tsu.session_id,
+    (tsu.user_objects_alloc_page_count - tsu.user_objects_dealloc_page_count) * 8 / 1024 AS UserMB,
+    (tsu.internal_objects_alloc_page_count - tsu.internal_objects_dealloc_page_count) * 8 / 1024 AS InternalMB,
+    es.host_name,
+    es.login_name,
+    es.program_name
+FROM sys.dm_db_session_space_usage tsu
+JOIN sys.dm_exec_sessions es ON tsu.session_id = es.session_id
+ORDER BY (tsu.user_objects_alloc_page_count + tsu.internal_objects_alloc_page_count) DESC;
+
+
+
+
+
+The transaction log for database 'tempdb' is full.
+Could not allocate space for object... in database 'tempdb'.
+
+
+****************************************
+
+
+
+
+
 /* Top 20 requêtes par I/O logique/physique via Query Store (SQL 2017) */
 
 SELECT TOP 20

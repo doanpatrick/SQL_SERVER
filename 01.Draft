@@ -41,6 +41,58 @@ The transaction log for database 'tempdb' is full.
 Could not allocate space for object... in database 'tempdb'.
 
 
+SELECT TOP 20
+    su.session_id,
+    (su.user_objects_alloc_page_count - su.user_objects_dealloc_page_count) * 8 / 1024 AS UserMB,
+    (su.internal_objects_alloc_page_count - su.internal_objects_dealloc_page_count) * 8 / 1024 AS InternalMB,
+    ((su.user_objects_alloc_page_count   - su.user_objects_dealloc_page_count)
+   + (su.internal_objects_alloc_page_count - su.internal_objects_dealloc_page_count)) * 8 / 1024 AS TotalMB,
+    s.host_name,
+    s.login_name,
+    s.program_name,
+    s.status
+FROM sys.dm_db_session_space_usage AS su
+JOIN sys.dm_exec_sessions AS s
+    ON su.session_id = s.session_id
+ORDER BY TotalMB DESC;
+
+
+
+
+Live en 2017
+
+;WITH task_space AS (
+    SELECT 
+        session_id,
+        request_id,
+        SUM(internal_objects_alloc_page_count - internal_objects_dealloc_page_count) AS internal_pages,
+        SUM(user_objects_alloc_page_count - user_objects_dealloc_page_count)       AS user_pages
+    FROM sys.dm_db_task_space_usage
+    GROUP BY session_id, request_id
+)
+SELECT TOP 20
+    ts.session_id,
+    ts.request_id,
+    (ts.user_pages   * 8) / 1024 AS UserMB,
+    (ts.internal_pages * 8) / 1024 AS InternalMB,
+    ((ts.user_pages + ts.internal_pages) * 8) / 1024 AS TotalMB,
+    s.host_name,
+    s.login_name,
+    s.program_name,
+    r.status,
+    r.command,
+    t.text AS query_text
+FROM task_space AS ts
+JOIN sys.dm_exec_sessions AS s
+    ON ts.session_id = s.session_id
+JOIN sys.dm_exec_requests AS r
+    ON ts.session_id = r.session_id
+   AND ts.request_id = r.request_id
+OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+ORDER BY TotalMB DESC;
+
+
+
 ****************************************
 
 

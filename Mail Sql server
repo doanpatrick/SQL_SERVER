@@ -1035,3 +1035,101 @@ EXEC msdb.dbo.sysmail_update_account_sp
 
 
 
+
+
+
+
+
+####################
+
+
+Oui 👍 tu peux tout à fait modifier directement ton compte Database Mail existant en T-SQL pour :
+
+changer le serveur SMTP,
+
+changer le port,
+
+et activer ou désactiver le chiffrement SSL (STARTTLS),
+sans devoir tout recréer.
+
+
+Voici exactement comment faire 👇
+
+
+---
+
+🧩 1️⃣ Commande SQL pour modifier le serveur, port et SSL
+
+EXEC msdb.dbo.sysmail_update_account_sp
+    @account_name = 'NomDeTonCompteSMTP',   -- ← ton compte existant
+    @mailserver_name = 'smtp.nouveauserveur.com',  -- ← ton nouveau serveur SMTP
+    @port = 587,                             -- ← ton nouveau port (ex : 25, 587)
+    @enable_ssl = 1;                         -- 1 = STARTTLS activé / 0 = désactivé
+
+💡 Exemples
+
+🔹 Pour passer de 25 (non chiffré) à 587 (STARTTLS)
+
+EXEC msdb.dbo.sysmail_update_account_sp
+    @account_name = 'Compte_SMTP_SQL',
+    @mailserver_name = 'smtp.office365.com',
+    @port = 587,
+    @enable_ssl = 1;
+
+🔹 Pour revenir à 25 (non chiffré)
+
+EXEC msdb.dbo.sysmail_update_account_sp
+    @account_name = 'Compte_SMTP_SQL',
+    @mailserver_name = 'smtp.local.lan',
+    @port = 25,
+    @enable_ssl = 0;
+
+
+---
+
+🧩 2️⃣ Vérifie la modification
+
+Après exécution :
+
+EXEC msdb.dbo.sysmail_help_account_sp;
+
+👉 Tu dois voir :
+
+mailserver_name	port	enable_ssl
+
+smtp.office365.com	587	1
+
+
+
+---
+
+🧩 3️⃣ Teste un envoi
+
+EXEC msdb.dbo.sp_send_dbmail
+    @profile_name = 'NomDuProfilAssocie',
+    @recipients = 'ton.email@exemple.com',
+    @subject = '✅ Test STARTTLS',
+    @body = 'Test d’envoi via le nouveau serveur SMTP avec STARTTLS.';
+
+Puis vérifie le résultat :
+
+SELECT TOP 10 log_date, event_type, description
+FROM msdb.dbo.sysmail_event_log
+ORDER BY log_date DESC;
+
+
+---
+
+✅ En résumé
+
+@mailserver_name → change le serveur SMTP
+
+@port → change le port (25, 465, 587…)
+
+@enable_ssl → 1 pour STARTTLS, 0 pour désactiver le chiffrement
+
+
+
+---
+
+Souhaites-tu que je te fasse une version prête à copier-coller où tu n’as qu’à renseigner le nouveau serveur (ex. smtp.office365.com) et l’adresse expéditeur (pour que je te mette les bonnes valeurs et la commande complète) ?

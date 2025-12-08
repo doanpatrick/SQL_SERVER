@@ -1133,3 +1133,121 @@ ORDER BY log_date DESC;
 ---
 
 Souhaites-tu que je te fasse une version prête à copier-coller où tu n’as qu’à renseigner le nouveau serveur (ex. smtp.office365.com) et l’adresse expéditeur (pour que je te mette les bonnes valeurs et la commande complète) ?
+
+
+
+
+#########################
+
+
+Excellent réflexe 👏 — tu anticipes le bon scénario de déploiement multi-instances :
+exécuter une mise à jour du compte Database Mail (sysmail_update_account_sp) sur plusieurs serveurs SQL, dont certains n’ont pas Database Mail configuré.
+
+Voici exactement ce qui se passe, et comment le gérer proprement sans erreurs 👇
+
+
+---
+
+🧠 1️⃣ Ce qu’il se passe par défaut
+
+Si tu exécutes :
+
+EXEC msdb.dbo.sysmail_update_account_sp
+    @account_name = 'Compte_SMTP_SQL',
+    @mailserver_name = 'smtp.exemple.com',
+    @port = 587,
+    @enable_ssl = 1;
+
+sur une instance où aucun compte Database Mail n’existe,
+tu obtiens une erreur du type :
+
+Msg 14636, Level 16, State 1, Procedure sysmail_update_account_sp
+The specified account does not exist.
+
+👉 Autrement dit :
+le script s’arrête avec une erreur fatale et interrompt ton batch, sauf si tu encapsules la commande dans un TRY…CATCH ou une vérification préalable.
+
+
+---
+
+⚙️ 2️⃣ Comment éviter cette erreur (bonne pratique)
+
+Avant de modifier quoi que ce soit, tu dois vérifier si le compte existe.
+Voici un script sûr et silencieux, utilisable sur toutes tes instances :
+
+/* =======================================================
+   🔒 Mise à jour SMTP STARTTLS uniquement si le compte existe
+   ======================================================= */
+DECLARE @AccountName SYSNAME = N'Compte_SMTP_SQL';  -- ton nom de compte
+DECLARE @ServerName NVARCHAR(256) = N'smtp.office365.com';
+DECLARE @Port INT = 587;
+DECLARE @SSL BIT = 1;
+
+IF EXISTS (
+    SELECT 1
+    FROM msdb.dbo.sysmail_account
+    WHERE name = @AccountName
+)
+BEGIN
+    PRINT '✅ Compte trouvé, mise à jour du serveur SMTP...';
+    EXEC msdb.dbo.sysmail_update_account_sp
+        @account_name = @AccountName,
+        @mailserver_name = @ServerName,
+        @port = @Port,
+        @enable_ssl = @SSL;
+    PRINT '➡️ Compte mis à jour avec succès.';
+END
+ELSE
+BEGIN
+    PRINT '⚠️ Aucun compte Database Mail trouvé sur cette instance (' + @@SERVERNAME + ').';
+END
+
+
+---
+
+🧩 3️⃣ Variante avec TRY…CATCH (si tu veux capturer les erreurs)
+
+BEGIN TRY
+    EXEC msdb.dbo.sysmail_update_account_sp
+        @account_name = 'Compte_SMTP_SQL',
+        @mailserver_name = 'smtp.office365.com',
+        @port = 587,
+        @enable_ssl = 1;
+    PRINT '✅ Mise à jour réussie sur ' + @@SERVERNAME;
+END TRY
+BEGIN CATCH
+    PRINT '⚠️ Erreur sur ' + @@SERVERNAME + ' : ' + ERROR_MESSAGE();
+END CATCH;
+
+
+---
+
+🧰 4️⃣ Pour exécution sur une liste d’instances
+
+Si tu gères plusieurs serveurs (via un Central Management Server, un job PowerShell ou un script multi-serveur), tu peux :
+
+Exécuter ce bloc sur toutes les instances :
+les serveurs sans Database Mail te renverront simplement le message :
+
+⚠️ Aucun compte Database Mail trouvé sur cette instance.
+
+et le script continuera sans erreur.
+
+
+
+---
+
+🧾 5️⃣ En résumé
+
+Cas	Résultat	Bon comportement
+
+Instance avec Database Mail configuré	✅ mise à jour réussie	Compte mis à jour
+Instance sans Database Mail	⚠️ erreur 14636 si non géré	Ajouter IF EXISTS ou TRY…CATCH
+Instance avec nom de compte incorrect	❌ même erreur	Vérifier le nom exact via sysmail_account
+
+
+
+---
+
+Souhaites-tu que je te fasse un script complet multi-instance (avec une table contenant ta liste de serveurs, test d’existence, update du compte, et rapport final de succès/échec par serveur) ?
+👉 C’est parfait pour des déploiements automatisés dans un parc SQL.

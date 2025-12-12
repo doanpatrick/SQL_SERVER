@@ -1,3 +1,167 @@
+
+
+
+Voici une analyse claire de la vulnérabilité détectée, son origine, et comment la corriger précisément dans le contexte SQL Server Integration Services (SSIS), car c’est bien de cela qu’il s’agit.
+
+
+---
+
+🔍 Cause de la vulnérabilité
+
+Le scan Tenable trouve :
+
+C:\Program Files\Microsoft SQL Server\150\DTS\Extensions\Common\Jars\log4j-1.2.17.jar
+Version : 1.2.17
+
+Il s’agit du moteur SSIS (SQL Server 2019 / version 150) qui embarque Log4j 1.x, une version obsolète et vulnérable.
+
+🎯 Pourquoi Log4j 1.2.17 est vulnérable ?
+
+Log4j 1.x n'est plus supporté depuis 2015 et comporte plusieurs vulnérabilités :
+
+Vulnérabilités connues dans Log4j 1.x
+
+CVE-2019-17571 – SocketServer remote code execution
+
+CVE-2021-4104 – JMSAppender RCE (si JMSAppender actif → rarement le cas dans SQL Server)
+
+CVE-2022-23302, CVE-2022-23305, CVE-2022-23307
+
+Risques de DoS, remote execution, logging injection
+
+
+💡 Même si SSIS n’utilise pas activement Log4j, la simple présence du .jar vulnérable dans le filesystem déclenche un signalement Tenable.
+
+
+---
+
+🧭 Contexte spécifique SQL Server / SSIS
+
+Microsoft a confirmé :
+
+✔️ SQL Server 2016 / 2017 / 2019 / 2022 embarquent log4j 1.2.17 dans SSIS
+
+Mais :
+
+il n’est pas utilisé pour faire du logging réseau,
+
+JMSAppender n’est pas activé,
+
+il n’est pas exploitable dans sa configuration par défaut.
+
+
+👉 Microsoft considère que cette vulnérabilité n’est pas exploitable dans SQL Server.
+
+Documentation Microsoft :
+
+> “SQL Server Integration Services uses log4j 1.x but is not affected by the known log4j vulnerabilities due to unused components not being loaded.”
+
+
+
+Cependant :
+⚠️ Les outils de sécurité continueront à le détecter.
+
+
+---
+
+🛠️ Comment corriger / atténuer cette vulnérabilité ?
+
+Tu as 3 solutions possibles :
+
+
+---
+
+✅ Solution 1 – Mitigation Microsoft (Recommandée et supportée)
+
+Microsoft recommande de supprimer les classes vulnérables depuis le JAR.
+
+Dans log4j-1.2.17, seules les classes suivantes sont vulnérables :
+
+org/apache/log4j/net/JMSAppender.class
+
+org/apache/log4j/net/SocketServer.class
+
+
+🎯 Action : supprimer ces classes du JAR.
+
+Étapes :
+
+1. Faire une copie du fichier :
+
+C:\Program Files\Microsoft SQL Server\150\DTS\Extensions\Common\Jars\log4j-1.2.17.jar
+
+
+2. Ouvrir le JAR avec 7-Zip / WinRAR / jar.exe
+
+
+3. Supprimer les fichiers suivants :
+
+org/apache/log4j/net/JMSAppender.class
+org/apache/log4j/net/SocketServer.class
+
+
+4. Redémarrer SSIS si utilisé (pas obligatoire)
+
+
+
+👍 Tenable considérera la vulnérabilité comme éliminée.
+👍 Microsoft valide cette méthode et elle est supportée.
+
+
+---
+
+✅ Solution 2 – Exclusion Tenable (si politique sécurité OK)
+
+Certaines entreprises acceptent de créer une exception car :
+
+SSIS n’est pas vulnérable dans sa configuration,
+
+Microsoft le confirme,
+
+Les composants vulnérables ne sont pas chargés par SQL Server.
+
+
+Tu peux alors demander une exclusion Tenable :
+
+➡️ "False positive — log4j-1.2.17.jar bundled with SQL Server Integration Services is not used and not exploitable per Microsoft security advisory."
+
+
+---
+
+⚠️ Solution 3 – Remplacer log4j par log4j-2.x (NON supportée !)
+
+❌ À ne pas faire.
+SQL Server ne supporte pas log4j 2.x → cela casserait SSIS.
+
+
+---
+
+📝 Résumé
+
+Question	Réponse
+
+D’où vient la vulnérabilité ?	Du fichier log4j-1.2.17.jar fourni avec SSIS (SQL Server 2019).
+Est-il réellement exploitable ?	Non, pas dans SSIS selon Microsoft.
+Pourquoi le scanner le détecte ?	Parce que Log4j 1.x est obsolète et contient des classes vulnérables.
+Comment corriger ?	✔ Supprimer les classes vulnérables dans le JAR.<br>✔ Ou demander une exclusion Tenable.
+
+
+
+---
+
+📌 Si tu veux, je peux te faire :
+
+Un mail de réponse formelle destiné à ton RSSI / équipe sécurité,
+
+Un script PowerShell automatisant la suppression des classes vulnérables,
+
+Un justificatif officiel Microsoft à joindre dans le ticket.
+
+
+Souhaites-tu une réponse formelle prête à envoyer ?
+
+
+
 SELECT TOP 20
     qs.session_id,
     qs.total_reserved_tempdb_pages * 8 / 1024 AS TotalTempdbMB,

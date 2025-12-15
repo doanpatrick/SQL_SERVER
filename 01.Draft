@@ -1,4 +1,19 @@
 
+La recentralisation des bases de données sur 2 ou 3 serveurs permet :
+
+✅ Une réduction significative des coûts de licences SQL Server
+
+✅ Une meilleure utilisation des ressources matérielles
+
+✅ Une simplification du monitoring et de l’exploitation
+
+✅ Une maintenance plus fiable et plus rapide
+
+✅ Une architecture plus robuste et évolutive
+
+
+Dans un contexte de maîtrise des coûts et d’optimisation du RUN, la consolidation n’est pas seulement une bonne pratique : c’est un levier financier et opérationnel majeur.
+
 
 
 Voici une analyse claire de la vulnérabilité détectée, son origine, et comment la corriger précisément dans le contexte SQL Server Integration Services (SSIS), car c’est bien de cela qu’il s’agit.

@@ -1,4 +1,36 @@
 
+Bonjour,
+
+Suite à vos remarques concernant l’utilisation des tickets lors de mes connexions via Wallix Bastion, je souhaite apporter des éléments de contexte afin d’expliquer les contraintes opérationnelles liées à mon rôle de DBA, et proposer des pistes d’amélioration compatibles avec les exigences de sécurité.
+
+Dans le cadre de mes activités quotidiennes, j’interviens sur un périmètre large (bases SQL Server, PostgreSQL, Oracle, exploitation, incidents, support applicatif, maintenance, performance, sécurité, etc.). Ces interventions sont souvent déclenchées par de multiples tickets, parfois de manière non planifiée, et nécessitent des actions transverses sur plusieurs environnements au cours d’une même session de travail.
+
+Une fois une session Wallix ouverte (durée pouvant aller jusqu’à 4 heures), il n’est actuellement pas possible de redéfinir ou rattacher un nouveau ticket en cours de session. Cela implique, pour être strictement conforme, de se déconnecter puis se reconnecter à chaque changement de contexte ou de ticket, ce qui est difficilement compatible avec :
+
+- la gestion des incidents,
+- les actions en chaîne ou corrélées,
+- les interruptions fréquentes propres à l’exploitation DBA,
+- et les contraintes de temps en production.
+
+Je tiens à préciser que l’ensemble de mes actions reste tracé par Wallix (enregistrement des sessions, commandes, horodatage), ce qui garantit l’auditabilité complète des opérations, même lorsque plusieurs tickets sont concernés dans une même session.
+
+Dans ce contexte, je souhaiterais proposer une approche plus adaptée :
+
+- Autoriser l’utilisation d’un ticket “global DBA / exploitation” pour les sessions longues et transverses,
+- Ou permettre l’association de plusieurs tickets à une même session, si la solution le permet,
+- Ou définir un cadre accepté pour les rôles d’exploitation, reconnaissant la nature multi-interventions de ces fonctions,
+- Ou, à défaut, formaliser une règle claire précisant dans quels cas un ticket unique couvrant plusieurs actions est acceptable.
+
+L’objectif n’est évidemment pas de contourner les règles de sécurité, mais de trouver un équilibre réaliste entre conformité, traçabilité et efficacité opérationnelle, afin d’éviter des déconnexions/reconnexions excessives qui augmentent le risque d’erreur sans réel gain de sécurité.
+
+Je reste bien entendu disponible pour en discuter et adapter mes pratiques dans un cadre validé conjointement.
+
+Cordialement,
+
+Patrick Doan
+DBA
+
+
 La recentralisation des bases de données sur 2 ou 3 serveurs permet :
 
 ✅ Une réduction significative des coûts de licences SQL Server

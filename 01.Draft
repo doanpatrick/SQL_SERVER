@@ -1,4 +1,105 @@
 
+
+Très bonne question — et leur réponse est classique et légitime du point de vue sécurité.
+Pour les convaincre, il faut changer l’angle : ne plus parler d’exception pour toi, mais de modèle opérationnel commun, gouverné et contrôlé.
+Je te propose une stratégie d’argumentation claire, puis un mail prêt à envoyer qui transforme leur objection en avantage sécurité.
+🎯 Le bon angle pour convaincre la sécurité
+❌ Mauvais angle (celui qu’ils refusent)
+« Faites une exception pour les DBA »
+✅ Bon angle (celui qu’ils acceptent)
+« Définissons un cadre standard pour les rôles d’exploitation transverse »
+👉 Tu ne demandes pas un passe-droit, tu proposes :
+une règle commune
+applicable aux DBA, systèmes et réseau
+documentée
+auditée
+réversible
+La sécurité aime ça.
+🔐 Argument clé à marteler (très important)
+Multiplier les déconnexions/reconnexions n’augmente pas la sécurité,
+mais augmente le risque opérationnel.
+Pourquoi ?
+perte de contexte
+interruptions
+erreurs humaines
+pression en incident
+contournements informels (sessions parallèles, scripts non tracés, etc.)
+👉 Le risque humain augmente, alors que la traçabilité Wallix reste identique.
+🧠 Arguments solides (sécurité-friendly)
+1️⃣ Le problème est structurel, pas spécifique au DBA
+Les équipes :
+DBA
+Système
+Réseau
+ont en commun :
+des interventions transverses
+des interruptions fréquentes
+des actions en chaîne
+des incidents non planifiés
+➡️ Donc un même modèle est cohérent, pas une exception.
+2️⃣ Wallix assure déjà la traçabilité fine
+Même avec un ticket “large” :
+sessions enregistrées
+horodatage
+commandes tracées
+preuves d’audit disponibles
+➡️ Le contrôle a posteriori est déjà maximal.
+3️⃣ Le ticket unique ≠ absence de justification
+Tu proposes :
+un ticket de type exploitation / run
+avec :
+périmètre défini
+durée limitée
+justification écrite
+revue a posteriori si besoin
+➡️ C’est gouverné, pas libre.
+4️⃣ Ce que la sécurité gagne
+Tu retournes la situation :
+✅ moins de contournement
+✅ moins de sessions parallèles
+✅ moins d’erreurs
+✅ règles claires
+✅ même cadre pour tous
+✅ meilleure acceptation par les équipes
+➡️ Adhésion > contrainte
+✉️ Mail prêt à envoyer (argumentaire “sécurité-compatible”)
+Adresse e-mail
+Objet
+Proposition de cadre commun d’utilisation des tickets Wallix pour les rôles d’exploitation
+Bonjour,
+Je comprends parfaitement votre position : toute règle appliquée à une équipe doit être cohérente et applicable également aux équipes système et réseau. Justement, c’est dans cette logique que je souhaite reformuler la demande.
+Le sujet n’est pas une exception spécifique au DBA, mais la définition d’un cadre commun pour les rôles d’exploitation transverses (DBA, systèmes, réseau), dont le mode de fonctionnement opérationnel présente des caractéristiques similaires :
+interventions multiples et enchaînées,
+gestion d’incidents non planifiés,
+changements de contexte fréquents,
+actions nécessitant une continuité de session.
+Dans ce cadre, l’obligation de se déconnecter/reconnecter à chaque nouveau ticket, lors de sessions longues, n’apporte pas de gain de sécurité supplémentaire, puisque l’ensemble des actions reste intégralement tracé par Wallix (enregistrements, horodatage, commandes). En revanche, cela augmente significativement le risque opérationnel et humain.
+Je souhaiterais donc proposer non pas une dérogation, mais un modèle standardisé, applicable à l’ensemble des équipes d’exploitation, par exemple :
+un ticket de type « exploitation / run » ou « intervention transverse »,
+à durée limitée,
+avec périmètre clairement défini,
+soumis à une justification et, si nécessaire, à une revue a posteriori,
+tout en conservant la traçabilité complète des sessions Wallix.
+L’objectif est de trouver un équilibre entre sécurité, auditabilité et efficacité opérationnelle, tout en évitant les contournements informels qui peuvent apparaître lorsque les contraintes ne sont pas adaptées à la réalité du terrain.
+Je reste bien entendu disponible pour travailler avec vous sur la définition précise de ce cadre, afin qu’il réponde pleinement aux exigences de sécurité.
+Cordialement,
+Patrick Doan
+DBA
+🧩 Astuce finale (très efficace)
+En réunion, dis cette phrase (elle marche très bien) :
+« Ce que nous demandons, ce n’est pas moins de sécurité,
+mais une sécurité applicable sans générer de risques humains supplémentaires. »
+Si tu veux, je peux aussi :
+t’aider à préparer une réponse orale pour un comité sécurité
+te faire une slide unique (1 page) pour appuyer la demande
+ou t’aider à négocier une phase pilote (argument très fort)
+Dis-moi 👍
+
+
+
+
+
+
 Bonjour,
 
 Suite à vos remarques concernant l’utilisation des tickets lors de mes connexions via Wallix Bastion, je souhaite apporter des éléments de contexte afin d’expliquer les contraintes opérationnelles liées à mon rôle de DBA, et proposer des pistes d’amélioration compatibles avec les exigences de sécurité.

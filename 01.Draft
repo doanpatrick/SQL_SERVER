@@ -1,4 +1,14 @@
 
+DECLARE @Date DATETIME = DATEADD(DAY, -7, GETDATE());
+
+EXEC master.dbo.xp_delete_file
+    0,
+    'D:\Backups\SQL',
+    'bak',
+    @Date,
+    1;
+
+
 
 Très bonne question — et leur réponse est classique et légitime du point de vue sécurité.
 Pour les convaincre, il faut changer l’angle : ne plus parler d’exception pour toi, mais de modèle opérationnel commun, gouverné et contrôlé.

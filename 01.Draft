@@ -1,14 +1,21 @@
 
-DECLARE @Date DATETIME = DATEADD(DAY, -7, GETDATE());
+$Path = "\\Serveur\Share\Backups"
+$Days = 35
 
-EXEC master.dbo.xp_delete_file
-    0,
-    'D:\Backups\SQL',
-    'bak',
-    @Date,
-    1;
+Get-ChildItem -Path $Path -Recurse -File -Filter "*.trn" |
+Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$Days) } |
+Remove-Item -Force -Verbose
 
 
+
+
+
+Mode TEST (sans suppression) ⭐ À FAIRE AVANT
+
+
+Get-ChildItem -Path "\\Serveur\Share\Backups" -Recurse -File -Filter "*.trn" |
+Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-35) } |
+Select FullName, LastWriteTime
 
 Très bonne question — et leur réponse est classique et légitime du point de vue sécurité.
 Pour les convaincre, il faut changer l’angle : ne plus parler d’exception pour toi, mais de modèle opérationnel commun, gouverné et contrôlé.

@@ -1,4 +1,34 @@
+supprimer
 
+$Path = "\\Serveur\Share\Backups"
+$Days = 35
+$Cutoff = (Get-Date).AddDays(-$Days)
+
+Get-ChildItem -Path $Path -Recurse -Directory |
+Where-Object {
+    $_.LastWriteTime -lt $Cutoff -and
+    (Get-ChildItem $_.FullName -Force | Measure-Object).Count -eq 0
+} |
+Remove-Item -Force -Verbose
+
+test
+
+Get-ChildItem -Path $Path -Recurse -Directory |
+Where-Object {
+    $_.LastWriteTime -lt (Get-Date).AddDays(-35) -and
+    (Get-ChildItem $_.FullName -Force | Measure-Object).Count -eq 0
+} |
+Select FullName, LastWriteTime
+
+
+
+
+
+
+
+
+
+**********************************************
 $Path = "\\Serveur\Share\Backups"
 $Days = 35
 

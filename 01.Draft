@@ -1,4 +1,4 @@
-supprimer
+supprimer dossier en cascade
 
 $Path = "\\Serveur\Share\Backups"
 $Days = 35
@@ -11,7 +11,12 @@ Where-Object {
 } |
 Remove-Item -Force -Verbose
 
-test
+
+
+
+
+test sans supprimer dossier en cascade
+
 
 Get-ChildItem -Path $Path -Recurse -Directory |
 Where-Object {

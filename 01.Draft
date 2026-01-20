@@ -1,3 +1,27 @@
+
+Vérification d’un mail id
+
+SELECT 
+    i.mailitem_id,
+    i.subject,
+    i.recipients,
+    i.sent_status,
+    i.last_mod_date,
+    l.description AS last_log
+FROM msdb.dbo.sysmail_allitems i
+OUTER APPLY (
+    SELECT TOP 1 description
+    FROM msdb.dbo.sysmail_event_log 
+    WHERE mailitem_id = i.mailitem_id
+    ORDER BY log_date DESC
+) AS l
+WHERE i.mailitem_id = 2607;
+
+***********************************
+
+
+
+
 supprimer dossier en cascade
 
 $Path = "\\Serveur\Share\Backups"

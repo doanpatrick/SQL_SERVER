@@ -1,4 +1,13 @@
 
+SELECT
+  SERVERPROPERTY('ProductVersion') AS ProductVersion,
+  SERVERPROPERTY('ProductLevel') AS ProductLevel,
+  SERVERPROPERTY('ProductUpdateLevel') AS ProductUpdateLevel,
+  SERVERPROPERTY('ProductUpdateReference') AS ProductUpdateReference;
+
+
+
+
 Vérification d’un mail id
 
 SELECT 

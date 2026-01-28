@@ -1,3 +1,35 @@
+2026/01/28 03:53:44  ERROR- Exception occurred while managing sequence:Workflow	execId=20493818,	signatureId=87,	preprocessorContext=null,	messageLevelContext=null,	entityId=1000000,	entityType=54,	
+processId=1000000,	processCode=null,	calculDate=Wed Jan 28 00:00:00 CET 2026,	executionDate=Wed Jan 28 00:00:00 CET 2026,	excludedEntities=,	includedEntities=,	processExecId=1138334,	
+parentProcessExecId=null,	parentTaskExecId=null,	dontFailOnEmptyWf=null,	
+com.bisam.core.exception.InvalidCodeException: fail to execute query : 'SELECT TREATMENT_EXEC.STATUS_ID,TREATMENT_EXEC.EXEC_ID FROM TREATMENT_EXEC WHERE TREATMENT_EXEC.EXEC_ID=?'
+	at com.bisam.core.sql.select.SqlRequestQuery.executeAsStream(SqlRequestQuery.java:190) ~[bisam-core-920.1-ec.jar:?]
+	at com.bisam.core.sql.select.SqlRequestQuery.executeAsMoList(SqlRequestQuery.java:209) ~[bisam-core-920.1-ec.jar:?]
+	at com.bisam.core.sql.select.SqlRequestQuery.executeAsUniqueMo(SqlRequestQuery.java:229) ~[bisam-core-920.1-ec.jar:?]
+	at com.bisam.server.tech.algos.treatmentservice.GenericWorkflowManager.sequenceIsWaiting(GenericWorkflowManager.java:170) ~[business-tech-920.1-ec.jar:?]
+	at com.bisam.server.tech.algos.treatmentservice.GenericWorkflowManager.handleSequence(GenericWorkflowManager.java:119) ~[business-tech-920.1-ec.jar:?]
+	at com.bisam.server.tech.algos.treatmentservice.GenericWorkflowManager.manageWorkflow(GenericWorkflowManager.java:97) ~[business-tech-920.1-ec.jar:?]
+	at com.bisam.server.tech.impl.WorkflowSequenceHandler.handle(WorkflowSequenceHandler.java:52) ~[business-tech-920.1-ec.jar:?]
+	at com.factset.analytics.jobs.tech.jobservice.GenericSequenceManager.manageSequence(GenericSequenceManager.java:59) ~[com.factset.analytics.jobs.tech-1.7.jar:?]
+	at com.factset.analytics.jobs.tech.message.consumers.GenericSequenceMessageConsumer.consume(GenericSequenceMessageConsumer.java:32) ~[com.factset.analytics.jobs.tech-1.7.jar:?]
+	at com.factset.analytics.jobs.tech.message.consumers.GenericSequenceMessageConsumer.consume(GenericSequenceMessageConsumer.java:13) ~[com.factset.analytics.jobs.tech-1.7.jar:?]
+	at com.bisam.core.multitenant.MultiTenantEntryPoint$Jms.consumeMessage(MultiTenantEntryPoint.java:103) ~[bisam-core-920.1-ec.jar:?]
+	at com.bisam.server.tech.impl.MultiTenantJmsImpl.consumeMessage(MultiTenantJmsImpl.java:16) ~[business-tech-920.1-ec.jar:?]
+	at com.factset.analytics.jobs.jms.JMSMessageConsumerListenerCreator.handleBytesMessage(JMSMessageConsumerListenerCreator.java:85) ~[com.factset.analytics.jobs.jms-1.7.jar:?]
+	at com.factset.analytics.jobs.jms.JMSMessageConsumerListenerCreator.onMessage(JMSMessageConsumerListenerCreator.java:40) ~[com.factset.analytics.jobs.jms-1.7.jar:?]
+	at org.apache.activemq.ActiveMQMessageConsumer.dispatch(ActiveMQMessageConsumer.java:1434) ~[activemq-client-5.17.7.jar:5.17.7]
+	at org.apache.activemq.ActiveMQSessionExecutor.dispatch(ActiveMQSessionExecutor.java:131) ~[activemq-client-5.17.7.jar:5.17.7]
+	at org.apache.activemq.ActiveMQSessionExecutor.iterate(ActiveMQSessionExecutor.java:202) ~[activemq-client-5.17.7.jar:5.17.7]
+	at org.apache.activemq.thread.PooledTaskRunner.runTask(PooledTaskRunner.java:133) ~[activemq-client-5.17.7.jar:5.17.7]
+	at org.apache.activemq.thread.PooledTaskRunner$1.run(PooledTaskRunner.java:48) ~[activemq-client-5.17.7.jar:5.17.7]
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144) ~[?:?]
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642) ~[?:?]
+	at java.base/java.lang.Thread.run(Thread.java:1583) [?:?]
+Caused by: com.microsoft.sqlserver.jdbc.SQLServerException: Connection reset
+	at com.microsoft.sqlserver.jdbc.SQLServerConnection.terminate(SQLServerConnection.java:3422) ~[mssql-jdbc-9.4.1.jre16.jar:?]
+	at com.microsoft.sqlserver.jdbc.TDSChannel.read(IOBuffer.java:2066) ~[mssql-jdbc-9.4.1.jre16.jar:?]
+	at com.microsoft.sqlserver.jdbc.TDSReader.readPacket(IOBuffer.java:6616) ~[mssql-jdbc-9.4.1.jre16.jar:?]
+
+
 
 SELECT
   SERVERPROPERTY('ProductVersion') AS ProductVersion,

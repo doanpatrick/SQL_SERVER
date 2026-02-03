@@ -1,0 +1,79 @@
+Tu parles de SQL Server (SS 😊). Ces 2 options activent le row versioning (versions de lignes) pour éviter que les lectures bloquent les écritures (et inversement), en s’appuyant sur le version store dans tempdb.
+1) ALLOW_SNAPSHOT_ISOLATION ON : qu’est-ce que ça fait ?
+Ça autorise l’usage du niveau d’isolation SNAPSHOT au cas par cas.
+Ça ne change rien tout seul au comportement des requêtes existantes.
+Pour en profiter, une session doit explicitement faire :
+Copier le code
+Sql
+SET TRANSACTION ISOLATION LEVEL SNAPSHOT;
+BEGIN TRAN;
+-- tes SELECT ici lisent une "photo" cohérente au début de la transaction
+COMMIT;
+Effet : tes SELECT ne prennent pas de verrous bloquants (pas de blocking côté lecture), et lisent une version cohérente des données.
+Attention : en SNAPSHOT, lors d’UPDATE/DELETE, tu peux avoir des conflits d’update (“Snapshot isolation transaction aborted due to update conflict…”) si quelqu’un a modifié les mêmes lignes depuis le début de ta transaction.
+2) READ_COMMITTED_SNAPSHOT ON (RCSI) : qu’est-ce que ça fait ?
+Ça modifie le comportement par défaut de READ COMMITTED (celui de la plupart des applis) :
+Avant : READ COMMITTED lit via des verrous partagés → peut bloquer / être bloqué.
+Avec RCSI ON : READ COMMITTED lit des versions (row versions) au moment où la requête démarre → beaucoup moins de blocking lecture/écriture.
+👉 Donc RCSI a un impact fonctionnel potentiel (sémantique) : une requête peut lire des données “un peu plus anciennes” (commitées avant le début de la requête), plutôt que d’attendre les verrous.
+3) L’impact concret sur ta base (à anticiper)
+✅ Les bénéfices
+Moins de blocking entre lecteurs et writers (souvent énorme gain en prod).
+Meilleure stabilité des temps de réponse côté SELECT.
+⚠️ Les coûts / risques
+tempdb va stocker des versions de lignes :
+plus d’IO tempdb, plus de conso espace, possible growth.
+Surcoût léger sur les écritures (INSERT/UPDATE/DELETE) car SQL Server doit gérer les versions.
+Si tu as des transactions longues (reporting, batch, ETL), elles peuvent faire gonfler le version store (les vieilles versions doivent être conservées tant qu’une transaction peut en avoir besoin).
+En pratique : l’impact “métier” le plus sensible est RCSI, parce qu’il change le comportement par défaut de READ COMMITTED.
+4) Comment vérifier l’état (et ce qui tourne)
+Copier le code
+Sql
+SELECT
+    name,
+    snapshot_isolation_state_desc,
+    is_read_committed_snapshot_on
+FROM sys.databases
+WHERE name = DB_NAME();
+Voir les transactions snapshot actives :
+Copier le code
+Sql
+SELECT *
+FROM sys.dm_tran_active_snapshot_database_transactions
+WHERE database_id = DB_ID();
+Surveillance version store / tempdb (indicateurs utiles) :
+Copier le code
+Sql
+SELECT *
+FROM sys.dm_tran_version_store_space_usage
+WHERE database_id = DB_ID();
+5) “Rollback” : comment revenir en arrière
+Cas A — désactiver RCSI (le vrai changement par défaut)
+Copier le code
+Sql
+ALTER DATABASE [TaBase] SET READ_COMMITTED_SNAPSHOT OFF;
+⚠️ En pratique, ça peut attendre que des transactions finissent, et SQL Server peut demander un accès exclusif. En maintenance, on fait souvent :
+Copier le code
+Sql
+ALTER DATABASE [TaBase] SET READ_COMMITTED_SNAPSHOT OFF WITH ROLLBACK IMMEDIATE;
+WITH ROLLBACK IMMEDIATE = coupe les sessions/transactions en cours sur la base (à utiliser en fenêtre de maintenance).
+Cas B — retirer l’autorisation SNAPSHOT
+Copier le code
+Sql
+ALTER DATABASE [TaBase] SET ALLOW_SNAPSHOT_ISOLATION OFF;
+Là aussi, si des transactions SNAPSHOT sont actives, ça peut attendre. En maintenance :
+Copier le code
+Sql
+ALTER DATABASE [TaBase] SET ALLOW_SNAPSHOT_ISOLATION OFF WITH ROLLBACK IMMEDIATE;
+✅ Ordre conseillé pour “rollback complet” :
+OFF RCSI
+OFF ALLOW_SNAPSHOT_ISOLATION
+6) Est-ce “dangereux” ?
+Pas “dangereux” en soi, c’est très courant en prod. Mais il faut surtout :
+s’assurer que tempdb est bien dimensionnée (fichiers, autogrowth raisonnable, stockage),
+traquer les transactions longues,
+valider que les applis tolèrent le comportement RCSI (quasi toujours OK, mais certains patterns très spécifiques peuvent “voir” des données légèrement différentes qu’avant).
+Si tu me donnes :
+version SQL Server,
+taille/charge (beaucoup de write ?),
+symptômes (blocking sur quelles tables / quelles requêtes), je peux te dire si RCSI est pertinent, et quels compteurs/DMV suivre pour mesurer l’impact (tempdb, version store, blocking, waits).

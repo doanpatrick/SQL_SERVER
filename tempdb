@@ -1,0 +1,51 @@
+Check rapide (T-SQL) pour voir pourquoi ça ne baisse pas
+A) Voir taille et espace libre par fichier tempdb
+Sql
+Copier le code
+USE tempdb;
+SELECT
+  name, type_desc,
+  size_mb = (size * 8) / 1024,
+  used_mb = (FILEPROPERTY(name, 'SpaceUsed') * 8) / 1024,
+  free_mb = ((size - FILEPROPERTY(name, 'SpaceUsed')) * 8) / 1024
+FROM sys.database_files
+ORDER BY type_desc, name;
+B) Voir qui consomme tempdb (top catégories)
+Sql
+Copier le code
+SELECT
+  SUM(user_object_reserved_page_count)*8/1024.0 AS user_objects_MB,
+  SUM(internal_object_reserved_page_count)*8/1024.0 AS internal_objects_MB,
+  SUM(version_store_reserved_page_count)*8/1024.0 AS version_store_MB,
+  SUM(unallocated_extent_page_count)*8/1024.0 AS free_space_MB,
+  SUM(mixed_extent_page_count)*8/1024.0 AS mixed_extents_MB
+FROM sys.dm_db_file_space_usage;
+C) Voir si version store te bloque
+Sql
+Copier le code
+SELECT
+  vs_active = SUM(version_store_reserved_page_count)*8/1024.0
+FROM sys.dm_db_file_space_usage;
+
+SELECT TOP (20)
+  transaction_id, elapsed_time_seconds, is_snapshot, session_id
+FROM sys.dm_tran_active_snapshot_database_transactions
+ORDER BY elapsed_time_seconds DESC;
+Le cas particulier tempdb : la vraie méthode pour réduire
+➡️ Le seul moyen “propre” et fiable de faire redescendre tempdb, c’est :
+Configurer la taille voulue (ALTER DATABASE … MODIFY FILE)
+Redémarrer l’instance SQL Server (tempdb est recréée au démarrage)
+Ex :
+Sql
+Copier le code
+ALTER DATABASE tempdb MODIFY FILE (NAME = tempdev, SIZE = 8192MB);
+ALTER DATABASE tempdb MODIFY FILE (NAME = tempdev2, SIZE = 8192MB);
+-- etc.
+Puis restart.
+À éviter (important)
+Shrink tempdb régulièrement = mauvaise pratique (fragmentation + regrowth + perf).
+Mieux : dimensionner tempdb correctement (size fixe + autogrowth raisonnable) et traiter la cause (requêtes, index rebuild, version store…).
+Si tu me donnes :
+la sortie de A + B,
+le nombre de fichiers tempdb + leurs tailles,
+je te dis précisément si c’est version store, internal objects, #temp, ou un high-water mark sur un fichier spécifique — et quoi faire sans casser la prod.

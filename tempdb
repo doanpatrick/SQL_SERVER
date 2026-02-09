@@ -49,3 +49,152 @@ Si tu me donnes :
 la sortie de A + B,
 le nombre de fichiers tempdb + leurs tailles,
 je te dis précisément si c’est version store, internal objects, #temp, ou un high-water mark sur un fichier spécifique — et quoi faire sans casser la prod.
+
+
+
+
+
+Oui — pour savoir si “ça bloque en fin de fichier”, il faut regarder le High-Water Mark (la dernière page allouée) par fichier tempdb. Si la dernière allocation est proche de la fin du fichier, SHRINKFILE ne pourra quasiment rien rendre.
+1) Méthode la plus simple : DBCC SHOWFILESTATS
+Ça te donne la dernière page utilisée ( UsedExtents / LastPage selon versions) et la taille.
+Sql
+Copier le code
+USE tempdb;
+DBCC SHOWFILESTATS;
+Interprétation :
+TotalExtents = taille du fichier (en extents)
+UsedExtents = extents utilisés (≈ HWM) ➡️ Si UsedExtents est très proche de TotalExtents, ton HWM est “en fin de fichier” → shrink bloqué.
+Remarque : l’output exact varie selon versions, mais l’idée reste : comparer “used” vs “total”.
+2) Méthode précise : sys.dm_db_database_page_allocations
+Tu récupères la page allouée la plus haute par fichier (HWM réel). (OK sur SQL Server récents)
+Sql
+Copier le code
+USE tempdb;
+;WITH a AS
+(
+  SELECT
+    allocated_page_file_id AS file_id,
+    allocated_page_page_id AS page_id
+  FROM sys.dm_db_database_page_allocations
+  (
+    DB_ID('tempdb'), NULL, NULL, NULL, 'LIMITED'
+  )
+  WHERE allocated_page_page_id IS NOT NULL
+)
+SELECT
+  file_id,
+  max_page_id = MAX(page_id),
+  -- conversion approx page -> MB : 8KB/page
+  hwm_mb = MAX(page_id) * 8.0 / 1024
+FROM a
+GROUP BY file_id
+ORDER BY file_id;
+Puis compare au taille du fichier :
+Sql
+Copier le code
+USE tempdb;
+SELECT
+  file_id,
+  name,
+  size_mb = size*8/1024.0
+FROM sys.database_files
+WHERE type_desc='ROWS'
+ORDER BY file_id;
+🔎 Lecture :
+si hwm_mb est ~ égal à size_mb → allocations “au bout” → shrink quasi impossible
+si hwm_mb est nettement plus bas que size_mb → shrink devrait pouvoir réduire (sinon autre blocage)
+3) Vérifier si tu as du “vide” mais pas à la fin
+Ce cas = beaucoup de free, mais au milieu.
+Sql
+Copier le code
+USE tempdb;
+SELECT
+  total_mb = SUM(size)*8/1024.0,
+  used_mb  = SUM(FILEPROPERTY(name,'SpaceUsed'))*8/1024.0,
+  free_mb  = SUM(size - FILEPROPERTY(name,'SpaceUsed'))*8/1024.0
+FROM sys.database_files
+WHERE type_desc='ROWS';
+➡️ Si free_mb est gros mais HWM est haut, ça confirme : vide non contigu en fin, donc shrink ne rend pas.
+4) Si HWM est haut : trouver le “coupable” (tempdb)
+Le plus fréquent sur tempdb : version store ou internal objects.
+Sql
+Copier le code
+SELECT
+  user_objects_MB    = SUM(user_object_reserved_page_count)*8/1024.0,
+  internal_objects_MB= SUM(internal_object_reserved_page_count)*8/1024.0,
+  version_store_MB   = SUM(version_store_reserved_page_count)*8/1024.0
+FROM sys.dm_db_file_space_usage;
+version_store_MB élevé → sessions snapshot/RCSI/online ops bloquent
+internal_objects_MB élevé → sorts/hashes/spools, index rebuild, grosses requêtes
+user_objects_MB élevé → #temp / table variables
+Ce qu’il faut retenir
+SHRINKFILE ne peut réduire que si l’espace libre est à la fin du fichier.
+Pour tempdb, si tu veux vraiment la réduire de manière fiable : ALTER DATABASE … MODIFY FILE (SIZE=…) + restart instance (tempdb est recréée au démarrage).
+Si tu colles ici les résultats de :
+DBCC SHOWFILESTATS;
+les 2 SELECT (tailles fichiers + HWM) je te dis direct quel fichier bloque et si c’est version store/internal/#temp.
+
+
+Avec ces chiffres, ce n’est clairement pas un “water mark en fin de fichier” qui bloque.
+Ce que tes valeurs veulent dire
+UsedExtents = 289 extents
+→ 289 × 64 KB = ~18 MB utilisés
+TotalExtents = 229 159 extents
+→ 229 159 × 64 KB = ~14 GB de taille fichier
+Donc ton “high-water mark” est très bas (≈ 18 MB). Dans ce cas, un shrink devrait pouvoir réduire facilement.
+Si DBCC SHRINKFILE “passe” mais que la taille ne bouge pas, les causes probables sont ailleurs :
+1) Tu as bien shrink… mais ça regonfle tout de suite (autogrowth)
+Très fréquent sur tempdb : shrink → OK → charge tempdb → regrowth immédiat → tu as l’impression que ça n’a rien réduit.
+✅ Vérifie la taille juste après la commande :
+Sql
+Copier le code
+USE tempdb;
+SELECT name, size_mb = size*8/1024.0, growth, is_percent_growth
+FROM sys.database_files
+WHERE type_desc='ROWS';
+Et check les événements de croissance (errorlog) :
+Sql
+Copier le code
+EXEC xp_readerrorlog 0, 1, N'autogrow', NULL;
+2) Un job / script remet la taille “comme avant”
+Beaucoup d’environnements ont un job qui fait : ALTER DATABASE tempdb MODIFY FILE (SIZE = ...) ou une procédure “standard” de démarrage.
+✅ Cherche dans SQL Agent / scripts de démarrage :
+Jobs avec MODIFY FILE
+Procédures de startup
+Politique “tempdb sizing”
+3) Tu shrink sans “cible” utile, ou tu shrink le mauvais fichier
+Pour être certain, force une cible claire (ex : 1024 MB) sur chaque fichier :
+Sql
+Copier le code
+USE tempdb;
+DBCC SHRINKFILE (tempdev, 1024);
+DBCC SHRINKFILE (tempdev2, 1024);
+-- etc.
+Puis recontrôle sys.database_files.
+4) Tu regardes la mauvaise “taille”
+Il y a 3 notions :
+size dans sys.database_files (taille SQL)
+taille du fichier sur disque
+espace libre interne (SpaceUsed)
+✅ La vérité SQL = sys.database_files.size.
+Si ça baisse là, le shrink a bien réduit.
+Le test “imparable”
+Fais dans la même minute :
+Sql
+Copier le code
+USE tempdb;
+SELECT GETDATE() AS t, name, size_mb = size*8/1024.0
+FROM sys.database_files
+WHERE type_desc='ROWS';
+
+DBCC SHRINKFILE (tempdev, 1024);
+
+SELECT GETDATE() AS t, name, size_mb = size*8/1024.0
+FROM sys.database_files
+WHERE type_desc='ROWS';
+Si ça baisse puis remonte → autogrowth / charge
+Si ça ne baisse jamais alors que UsedExtents est à 289 → (rare) job/paramètre qui impose une taille, ou tu ne shrink pas le bon logical file / pas le bon type
+Si tu me colles :
+le résultat de SELECT name, size*8/1024.0 ... FROM tempdb.sys.database_files
+la commande exacte que tu lances (DBCC SHRINKFILE (...) complète)
+je te dis tout de suite lequel des 4 cas c’est.

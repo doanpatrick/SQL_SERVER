@@ -1,0 +1,57 @@
+SELECT 
+    db.name AS DatabaseName,
+    db.state_desc AS StateDesc,
+    dmde.encryption_state,
+    CASE dmde.encryption_state
+        WHEN 0 THEN 'No database encryption key present'
+        WHEN 1 THEN 'Unencrypted'
+        WHEN 2 THEN 'Encryption in progress'
+        WHEN 3 THEN 'Encrypted'
+        WHEN 4 THEN 'Key change in progress'
+        WHEN 5 THEN 'Decryption in progress'
+        WHEN 6 THEN 'Protection change in progress'
+    END AS EncryptionStateDesc,
+    dmde.percent_complete,
+    dmde.key_algorithm,
+    dmde.key_length,
+    cert.name AS CertificateName
+FROM sys.databases db
+LEFT JOIN sys.dm_database_encryption_keys dmde
+    ON db.database_id = dmde.database_id
+LEFT JOIN sys.certificates cert
+    ON dmde.encryptor_thumbprint = cert.thumbprint
+ORDER BY db.name;
+
+
+
+
+USE master;
+GO
+
+SELECT 
+    name,
+    subject,
+    expiry_date,
+    thumbprint
+FROM sys.certificates
+ORDER BY name;
+
+
+
+
+SELECT 
+    db.name,
+    CASE 
+        WHEN dmde.database_id IS NULL THEN 'NOT ENCRYPTED'
+        WHEN dmde.encryption_state = 3 THEN 'ENCRYPTED'
+        ELSE 'IN PROGRESS'
+    END AS TDE_Status
+FROM sys.databases db
+LEFT JOIN sys.dm_database_encryption_keys dmde
+    ON db.database_id = dmde.database_id
+ORDER BY db.name;
+
+
+
+
+

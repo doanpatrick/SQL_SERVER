@@ -1,3 +1,75 @@
+
+
+Oui — ça dépend du type de vue 😉
+En SQL, toutes les vues ne sont pas modifiables.
+✅ Vues modifiables (updatable views)
+Une vue peut être mise à jour (INSERT, UPDATE, DELETE) si elle est simple.
+Conditions principales :
+La vue doit :
+Reposer sur une seule table
+Ne pas contenir :
+JOIN
+GROUP BY
+DISTINCT
+Fonctions d’agrégation (COUNT, SUM, AVG, etc.)
+UNION
+Sous-requêtes complexes
+Inclure la clé primaire de la table
+Exemple ✅
+SQL
+CREATE VIEW v_clients AS
+SELECT id, nom, email
+FROM clients;
+➡️ Cette vue est modifiable :
+SQL
+UPDATE v_clients
+SET email = 'test@mail.com'
+WHERE id = 1;
+➡️ La table clients sera bien mise à jour.
+❌ Vues non modifiables
+Une vue devient en lecture seule si elle contient par exemple :
+❌ Jointure
+SQL
+CREATE VIEW v_commandes AS
+SELECT c.nom, o.date
+FROM clients c
+JOIN commandes o ON c.id = o.client_id;
+❌ Agrégation
+SQL
+CREATE VIEW v_stats AS
+SELECT client_id, COUNT(*) total
+FROM commandes
+GROUP BY client_id;
+➡️ Impossible de faire un UPDATE direct sur ces vues.
+🧠 Cas particulier : vues avec INSTEAD OF (Oracle / SQL Server)
+Certaines bases (comme Oracle) permettent de rendre une vue modifiable via un trigger INSTEAD OF.
+Principe :
+Tu fais un UPDATE sur la vue
+Le trigger intercepte l’action
+Il met à jour les vraies tables derrière
+👉 Très puissant, mais plus complexe à maintenir.
+🧾 En résumé
+Type de vue
+Modifiable ?
+Vue simple (1 table)
+✅ Oui
+Vue avec JOIN
+❌ Non
+Vue avec GROUP BY
+❌ Non
+Vue avec DISTINCT
+❌ Non
+Vue avec trigger INSTEAD OF
+✅ Oui
+Si tu veux, dis-moi :
+👉 Quelle base (Oracle, SQL Server, MySQL, PostgreSQL)
+👉 Le SQL de ta vue
+et je te dirai exactement si elle est modifiable et comment faire 👌
+
+
+
+************************************
+
 2026/01/28 03:53:44  ERROR- Exception occurred while managing sequence:Workflow	execId=20493818,	signatureId=87,	preprocessorContext=null,	messageLevelContext=null,	entityId=1000000,	entityType=54,	
 processId=1000000,	processCode=null,	calculDate=Wed Jan 28 00:00:00 CET 2026,	executionDate=Wed Jan 28 00:00:00 CET 2026,	excludedEntities=,	includedEntities=,	processExecId=1138334,	
 parentProcessExecId=null,	parentTaskExecId=null,	dontFailOnEmptyWf=null,	

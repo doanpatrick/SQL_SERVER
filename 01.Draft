@@ -1,4 +1,12 @@
-
+USE tempdb;
+SELECT
+    name,
+    physical_name,
+    size * 8 / 1024 AS taille_initiale_MB,
+    max_size,
+    growth,
+    is_percent_growth
+FROM sys.database_files;
 
 Oui — ça dépend du type de vue 😉
 En SQL, toutes les vues ne sont pas modifiables.

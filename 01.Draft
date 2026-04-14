@@ -1,3 +1,26 @@
+
+perf 
+
+SELECT  
+    qs.query_id,
+    qs.plan_id,
+    rs.execution_type_desc,
+    rs.last_execution_time,
+    rs.count_executions
+FROM sys.query_store_runtime_stats rs
+JOIN sys.query_store_plan qs 
+    ON rs.plan_id = qs.plan_id
+WHERE qs.query_id = <TON_QUERY_ID>
+ORDER BY rs.last_execution_time DESC;
+
+
+
+
+
+
+
+
+
 USE tempdb;
 SELECT
     name,

@@ -1,3 +1,75 @@
+Analyse des index manquants — ECM_ASI_OperationAccountStatementInstruction
+SQL Server a détecté 4 index manquants sur cette table. Voici leur analyse :
+📋 Détail des 4 suggestions
+#
+index_handle
+equality_columns
+inequality_columns
+included_columns
+Impact estimé
+1
+19003
+[Reference]
+NULL
+NULL
+⚠️ Le plus récent
+2
+89401
+[PeriodEndDate]
+NULL
+NULL
+—
+3
+17111
+[AccountId]
+NULL
+[Sequence]
+—
+4
+10296
+[AccountId], [RecipientBICId]
+[EventId], [PeriodEndDate]
+NULL
+🎯 Celui lié au plan 99.87%
+🎯 Index prioritaire : le n°4 (handle 10296)
+C'est clairement celui qui correspond au Missing Index Impact 99.8672 vu dans le Query Store. Il combine :
+equality sur AccountId + RecipientBICId
+inequality sur EventId + PeriodEndDate
+La requête fait un MAX(EventId) avec des jointures — ce pattern correspond parfaitement.
+CREATE NONCLUSTERED INDEX [IX_ECM_ASI_OpAccStmt_AccountId_RecipientBICId]
+ON [dbo].[ECM_ASI_OperationAccountStatementInstruction]
+    ([AccountId], [RecipientBICId], [EventId], [PeriodEndDate])
+-- Ajouter INCLUDE si le Key Lookup persiste après test
+⚠️ Les colonnes inequality (EventId, PeriodEndDate) doivent être en dernière position dans la clé, pas en INCLUDE, pour bénéficier du range scan.
+🔶 Index n°3 (handle 17111) — secondaire
+[AccountId] avec [Sequence] en INCLUDE — probablement une autre requête sur la même table.
+CREATE NONCLUSTERED INDEX [IX_ECM_ASI_OpAccStmt_AccountId]
+ON [dbo].[ECM_ASI_OperationAccountStatementInstruction]
+    ([AccountId])
+INCLUDE ([Sequence])
+⚠️ Attention avant de créer
+Ne pas créer les 4 aveuglément. Les index n°1 (Reference) et n°2 (PeriodEndDate) ont des included_columns = NULL — ce sont peut-être des suggestions de requêtes ponctuelles peu importantes.
+Ordre recommandé :
+✅ Créer le n°4 en priorité absolue (impact 99.87%)
+✅ Évaluer le n°3 selon les autres requêtes lentes
+⏸️ Différer n°1 et n°2 jusqu'à nouvelle analyse
+Script de vérification post-création
+-- Vérifier l'utilisation du nouvel index après création
+SELECT 
+    i.name,
+    ius.user_seeks,
+    ius.user_scans,
+    ius.user_lookups,
+    ius.last_user_seek
+FROM sys.indexes i
+JOIN sys.dm_db_index_usage_stats ius 
+    ON i.object_id = ius.object_id 
+    AND i.index_id = ius.index_id
+WHERE i.object_id = OBJECT_ID('dbo.ECM_ASI_OperationAccountStatementInstruction')
+Crée l'index n°4 en heures creuses — sur une table volumineuse avec autant de lectures, la construction peut prendre du temps et générer des locks.
+
+
+
 
 perf 
 

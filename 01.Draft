@@ -1,109 +1,130 @@
-		
-										w Pourquoi devez-vous emporter tout votre équipement de travail (ordinateur portable, cahier, casque, câble de recharge, etc.) chez vous en cas d'interruption de l'accès à un lieu physique pour travailler?
-Pour être prêt immédiatement en cas d'interruption
-Pour mettre de l'ordre dans vos notes dès que vous en avez l'occasion
-										w Quand vous créez un mot de passe pour un compte en ligne, vous devez : (choisissez toutes les réponses qui s’appliquent)
-Choisir un mot de passe unique pour chaque site que vous consultez
-Changer votre mot de passe régulièrement.
-Partager votre mot de passe au cas où vous l’oublieriez.
-Choisir un mot de passe complexe.
-										w Si vous recevez un message d’un collègue vous demandant de transférer de l’argent ou d’envoyer des informations sensibles, vous devez :
+Si vous recevez un message d’un collègue vous demandant de transférer de l’argent ou d’envoyer des informations sensibles, vous devez :
+
 Accéder à sa demande
-Répondre au message pour confirmer la demande
 Ignorer la demande
 Suivre les politiques et procédures de votre organisation
-										w L’authentification à facteurs multiples (AFM) renforce la sécurité de vos comptes en exigeant deux facteurs ou plus pour confirmer votre identité.
-Faux
-Vrai
-										w DORA répond aux besoins essentiels : (Choisissez toutes les réponses qui s’appliquent)
-De la gestion des risques de tiers liés
-De la résilience systémique
-Des délais de déclaration des incidents
-Des exigences en matière d’audit financier
-Des lacunes de cybersécurité
-										w Utiliser des données d’entreprise sensibles avec un système d’IA hébergé en externe ne présente aucun risque.
-Faux
-Vrai
-										w Si vous recevez une demande suspecte d’une connaissance par e-mail, vous devez :
-Répondre à la demande.
-Contacter la personne par un autre moyen.
-L’ignorer.
-										w Les cybercriminels manipulent souvent la psychologie humaine pour augmenter les chances de réussite d’une attaque d’ingénierie sociale.
-Vrai
-Faux
-										w Combien de temps avez-vous pour signaler une violation de données aux personnes concernées si elle représente un risque élevé pour elles ?
-1 semaine
-24 heures
-72 heures
-Vous n’avez pas à le leur signaler
-1 mois
-										w Le RGPD est conçu pour :
-Encourager différents niveaux de protection des données dans l’UE
-Remplacer la directive de l’UE relatives aux données par des lois moins contraignantes sur la protection des données
-Renforcer et harmoniser la protection des données au sein de l’UE
-										w Il est prudent de stocker les mots de passe dans le navigateur Internet.
-Faux
-Vrai
-										w En cas de crise, est-il pertinent de contacter votre supérieur hiérarchique direct si vous avez besoin de précisions supplémentaires ?
-Oui
-Non
-										w Les processus et procédures de votre organisation pour protéger les données personnelles peuvent être classés comme une protection des données : (choisir toutes les réponses qui s’appliquent)
-Par demande
-Par défaut
-Par détermination
-Dès la conception
-										w Quels sont les risques auxquels ODDO BHF est confronté en cas d'interruption ?
-Toutes les réponses
-Pertes financières
-Violation potentielle des lois financières
-Atteinte à la réputation
-										w Les cybercriminels peuvent cloner une voix de manière convaincante avec seulement quelques secondes d’enregistrement audio.
-Faux
-Vrai
-										w Pourquoi devez-vous signaler immédiatement un incident informatique ou un comportement suspect ?
-Pour éviter qu’un problème local ne se transforme en crise opérationnelle à l’échelle de la banque
+Répondre au message pour confirmer la demande
+Quand vous créez un mot de passe pour un compte en ligne, vous devez : (choisissez toutes les réponses qui s’appliquent)
+
+Choisir un mot de passe unique pour chaque site que vous consultez
+Choisir un mot de passe complexe.
+Changer votre mot de passe régulièrement.
+Partager votre mot de passe au cas où vous l’oublieriez.
+Pourquoi devez-vous signaler immédiatement un incident informatique ou un comportement suspect ?
+
 Parce que DORA impose une détection et une notification rapides des incidents majeurs pour limiter leur impact
 Pour que l’employé soit tenu responsable de l’incident
+Pour éviter qu’un problème local ne se transforme en crise opérationnelle à l’échelle de la banque
 Parce que les incidents se résolvent généralement d’eux mêmes sans intervention
-										w L’ordinateur d’un collègue est volé, donnant au voleur l’accès aux données à caractère personnel de nos systèmes. Est-ce une violation ?
-Non
-Vrai
-										w Si vous recevez un e-mail de la part d’une personne que vous connaissez et qui est en position d’autorité, vous pouvez passer outre les procédures normales si elle le demande.
-Faux
-Vrai
-										w Pourquoi ne faut il utiliser que les outils, services cloud et logiciels approuvés par la banque ?
-Parce que cela simplifie la vie des équipes IT
-Parce que les outils non approuvés sont automatiquement dangereux
-Pour garantir qu’ils respectent les exigences de sécurité et DORA
-Pour éviter des fuites de données ou la non conformité réglementaire
-										w Les attaquants sont susceptibles de : (cochez toutes les réponses qui s’appliquent)
-Toutes les réponses
-Se concentrer sur les émotions et la confiance existante pour justifier leurs demandes
-Se faire passer pour un collègue, un ami ou un membre de la famille
-Utiliser des canaux personnels tels que WhatsApp,les SMS et les e-mails
-										w Une bonne pratique de sécurité consiste à utiliser le même mot de passe fort pour tous vos services en ligne.
-Vrai
-Faux
-										w À quoi sert le règlement DORA ?
-Remplacer toutes les politiques internes de cybersécurité des banques
-Interdire l'utilisation de tout fournisseur externe de technologies
-Harmoniser la gestion des risques liés aux technologies dans le secteur financier
-Améliorer la résilience opérationnelle face aux incidents informatiques
-										w Les mots de passe constituent notre première ligne de défense contre les cyberattaques visant nos informations financières sensibles.
-Vrai
-Faux
-										w Un objectif clé de DORA est de :
-Améliorer la résilience opérationnelle des organisations financières
-Normaliser la conformité fiscale pour les organisations financières
-Réduire les sanctions pour les incidents de cybersécurité
-Limiter l’utilisation des fournisseurs de TIC par les organisations financières
-										w Si vous recevez une demande inhabituelle de dossiers RH, vous devez :
+Si vous recevez une demande inhabituelle de dossiers RH, vous devez :
+
 La traiter
 L’ignorer
 Vérifier l’authenticité de la demande par un moyen indépendant
+Les cybercriminels manipulent souvent la psychologie humaine pour augmenter les chances de réussite d’une attaque d’ingénierie sociale.
 
+Vrai
+Faux
+DORA répond aux besoins essentiels : (Choisissez toutes les réponses qui s’appliquent)
 
+Des lacunes de cybersécurité
+De la résilience systémique
+Des exigences en matière d’audit financier
+Des délais de déclaration des incidents
+De la gestion des risques de tiers liés
+Pourquoi devez-vous emporter tout votre équipement de travail (ordinateur portable, cahier, casque, câble de recharge, etc.) chez vous en cas d'interruption de l'accès à un lieu physique pour travailler?
 
+Pour être prêt immédiatement en cas d'interruption
+Pour mettre de l'ordre dans vos notes dès que vous en avez l'occasion
+Si vous recevez un e-mail de la part d’une personne que vous connaissez et qui est en position d’autorité, vous pouvez passer outre les procédures normales si elle le demande.
+
+Vrai
+Faux
+Un objectif clé de DORA est de :
+
+Limiter l’utilisation des fournisseurs de TIC par les organisations financières
+Normaliser la conformité fiscale pour les organisations financières
+Améliorer la résilience opérationnelle des organisations financières
+Réduire les sanctions pour les incidents de cybersécurité
+Si vous recevez une demande suspecte d’une connaissance par e-mail, vous devez :
+
+Répondre à la demande.
+Contacter la personne par un autre moyen.
+L’ignorer.
+Utiliser des données d’entreprise sensibles avec un système d’IA hébergé en externe ne présente aucun risque.
+
+Faux
+Vrai
+Une bonne pratique de sécurité consiste à utiliser le même mot de passe fort pour tous vos services en ligne.
+
+Faux
+Vrai
+Il est prudent de stocker les mots de passe dans le navigateur Internet.
+
+Vrai
+Faux
+En cas de crise, est-il pertinent de contacter votre supérieur hiérarchique direct si vous avez besoin de précisions supplémentaires ?
+
+Oui
+Non
+Le RGPD est conçu pour :
+
+Renforcer et harmoniser la protection des données au sein de l’UE
+Remplacer la directive de l’UE relatives aux données par des lois moins contraignantes sur la protection des données
+Encourager différents niveaux de protection des données dans l’UE
+Les processus et procédures de votre organisation pour protéger les données personnelles peuvent être classés comme une protection des données : (choisir toutes les réponses qui s’appliquent)
+
+Dès la conception
+Par détermination
+Par demande
+Par défaut
+À quoi sert le règlement DORA ?
+
+Améliorer la résilience opérationnelle face aux incidents informatiques
+Remplacer toutes les politiques internes de cybersécurité des banques
+Harmoniser la gestion des risques liés aux technologies dans le secteur financier
+Interdire l'utilisation de tout fournisseur externe de technologies
+Quels sont les risques auxquels ODDO BHF est confronté en cas d'interruption ?
+
+Pertes financières
+Violation potentielle des lois financières
+Atteinte à la réputation
+Toutes les réponses
+Pourquoi ne faut il utiliser que les outils, services cloud et logiciels approuvés par la banque ?
+
+Pour éviter des fuites de données ou la non conformité réglementaire
+Pour garantir qu’ils respectent les exigences de sécurité et DORA
+Parce que les outils non approuvés sont automatiquement dangereux
+Parce que cela simplifie la vie des équipes IT
+Combien de temps avez-vous pour signaler une violation de données aux personnes concernées si elle représente un risque élevé pour elles ?
+
+Vous n’avez pas à le leur signaler
+24 heures
+1 mois
+1 semaine
+72 heures
+Les cybercriminels peuvent cloner une voix de manière convaincante avec seulement quelques secondes d’enregistrement audio.
+
+Faux
+Vrai
+L’authentification à facteurs multiples (AFM) renforce la sécurité de vos comptes en exigeant deux facteurs ou plus pour confirmer votre identité.
+
+Faux
+Vrai
+Les attaquants sont susceptibles de : (cochez toutes les réponses qui s’appliquent)
+
+Toutes les réponses
+Se faire passer pour un collègue, un ami ou un membre de la famille
+Utiliser des canaux personnels tels que WhatsApp,les SMS et les e-mails
+Se concentrer sur les émotions et la confiance existante pour justifier leurs demandes
+Les mots de passe constituent notre première ligne de défense contre les cyberattaques visant nos informations financières sensibles.
+
+Faux
+Vrai
+L’ordinateur d’un collègue est volé, donnant au voleur l’accès aux données à caractère personnel de nos systèmes. Est-ce une violation ?
+
+Vrai
+Non
 
 
 

@@ -1,3 +1,135 @@
+
+Vérifier la période réellement couverte par le Query Store
+D’abord, on s’assure que la période de l’incident est bien dedans.
+SQL
+SELECT 
+    MIN(runtime_stats_interval.start_time) AS qs_start,
+    MAX(runtime_stats_interval.end_time)   AS qs_end
+FROM sys.query_store_runtime_stats_interval runtime_stats_interval;
+👉 Si ton incident est dans cet intervalle → OK, analyse possible.
+2️⃣ Évolution des performances jour par jour (preuve du “avant / pendant / après”)
+Durée moyenne journalière
+SQL
+SELECT
+    CAST(rsi.start_time AS DATE) AS [date],
+    SUM(rs.count_executions) AS executions,
+    AVG(rs.avg_duration) / 1000.0 AS avg_duration_ms,
+    MAX(rs.max_duration) / 1000.0 AS max_duration_ms
+FROM sys.query_store_runtime_stats rs
+JOIN sys.query_store_runtime_stats_interval rsi
+    ON rs.runtime_stats_interval_id = rsi.runtime_stats_interval_id
+WHERE rsi.start_time BETWEEN '2026-03-10' AND '2026-04-10'
+GROUP BY CAST(rsi.start_time AS DATE)
+ORDER BY [date];
+👉 Tu vas voir :
+une cassure nette le jour de l’incident
+ou une dérive progressive
+3️⃣ Identifier les requêtes les plus “I/O bound”
+Top requêtes par lectures logiques
+SQL
+SELECT TOP 20
+    qt.query_sql_text,
+    SUM(rs.count_executions) AS executions,
+    AVG(rs.avg_logical_io_reads) AS avg_logical_reads,
+    AVG(rs.avg_duration) / 1000.0 AS avg_duration_ms
+FROM sys.query_store_runtime_stats rs
+JOIN sys.query_store_plan p
+    ON rs.plan_id = p.plan_id
+JOIN sys.query_store_query q
+    ON p.query_id = q.query_id
+JOIN sys.query_store_query_text qt
+    ON q.query_text_id = qt.query_text_id
+JOIN sys.query_store_runtime_stats_interval rsi
+    ON rs.runtime_stats_interval_id = rsi.runtime_stats_interval_id
+WHERE rsi.start_time BETWEEN '2026-03-10' AND '2026-04-10'
+GROUP BY qt.query_sql_text
+ORDER BY AVG(rs.avg_logical_io_reads) DESC;
+👉 Indice fort :
+Augmentation brutale des logical reads
+Même requête, même plan, mais beaucoup plus coûteuse
+4️⃣ Corrélation indirecte avec les locks (très important)
+⚠️ Query Store ne stocke pas les locks,
+mais il stocke les symptômes des locks.
+Requêtes avec forte durée mais peu d’I/O
+➡️ typique d’une attente lock
+SQL
+SELECT TOP 20
+    qt.query_sql_text,
+    AVG(rs.avg_duration) / 1000.0 AS avg_duration_ms,
+    AVG(rs.avg_logical_io_reads) AS logical_reads,
+    AVG(rs.avg_cpu_time) / 1000.0 AS avg_cpu_ms
+FROM sys.query_store_runtime_stats rs
+JOIN sys.query_store_plan p ON rs.plan_id = p.plan_id
+JOIN sys.query_store_query q ON p.query_id = q.query_id
+JOIN sys.query_store_query_text qt ON q.query_text_id = qt.query_text_id
+JOIN sys.query_store_runtime_stats_interval rsi
+    ON rs.runtime_stats_interval_id = rsi.runtime_stats_interval_id
+WHERE rsi.start_time BETWEEN '2026-03-10' AND '2026-04-10'
+GROUP BY qt.query_sql_text
+HAVING AVG(rs.avg_duration) > 100000  -- >100 ms
+   AND AVG(rs.avg_logical_io_reads) < 100
+ORDER BY avg_duration_ms DESC;
+👉 Interprétation :
+Peu d’IO
+Peu de CPU
+Mais durée élevée
+➡️ attente lock / contention transactionnelle
+5️⃣ Avant / Après incident (preuve béton)
+Comparer deux périodes
+SQL
+WITH stats AS (
+    SELECT
+        qt.query_sql_text,
+        CASE 
+            WHEN rsi.start_time < '2026-03-20' THEN 'AVANT'
+            ELSE 'APRES'
+        END AS periode,
+        AVG(rs.avg_duration) AS avg_duration,
+        AVG(rs.avg_logical_io_reads) AS logical_reads
+    FROM sys.query_store_runtime_stats rs
+    JOIN sys.query_store_plan p ON rs.plan_id = p.plan_id
+    JOIN sys.query_store_query q ON p.query_id = q.query_id
+    JOIN sys.query_store_query_text qt ON q.query_text_id = qt.query_text_id
+    JOIN sys.query_store_runtime_stats_interval rsi
+        ON rs.runtime_stats_interval_id = rsi.runtime_stats_interval_id
+    WHERE rsi.start_time BETWEEN '2026-03-10' AND '2026-04-10'
+    GROUP BY qt.query_sql_text,
+             CASE 
+               WHEN rsi.start_time < '2026-03-20' THEN 'AVANT'
+               ELSE 'APRES'
+             END
+)
+SELECT *
+FROM stats
+WHERE avg_duration > 2 * (
+    SELECT MIN(avg_duration) FROM stats s2 WHERE s2.query_sql_text = stats.query_sql_text
+)
+ORDER BY avg_duration DESC;
+👉 Là, tu mets en évidence :
+régression nette
+corrélation temporelle avec l’incident
+6️⃣ Conclusion technique (clé pour ton rapport)
+Tu peux écrire noir sur blanc :
+Le Query Store montre une augmentation significative des durées d’exécution sur la période de l’incident.
+Cette hausse est accompagnée soit d’une augmentation des lectures logiques (pression I/O), soit d’une augmentation de durée sans consommation CPU/IO, typique d’attentes de verrous.
+La corrélation temporelle permet d’établir un lien entre la dégradation I/O et l’augmentation de la contention transactionnelle.
+🔥 Si tu veux aller encore plus loin
+Je peux :
+t’aider à cibler UNE requête fautive
+t’aider à prouver que ce n’est pas le downgrade SQL Enterprise → Standard
+te fournir une checklist “Root Cause Analysis SQL Server”
+t’aider à construire des graphiques prêts pour management
+Dis-moi ce que tu veux creuser en premier 👌
+
+Ah, bonne question ! En gros, les "lock waits", c’est quand une requête attend qu’une ressource soit libérée parce qu’un autre processus l’a verrouillée. Donc, c’est une attente logique, interne à SQL Server. Les "I/O waits", eux, c’est quand le SQL Server attend une opération d’entrée/sortie, par exemple sur le disque. Donc, les I/O waits, ça touche vraiment les accès physiques, alors que les lock waits, c’est plus une contention interne à la logique de la base. En résumé, l’un est lié à l’attente sur le disque, l’autre sur des verrous entre transactions.
+
+
+
+
+
+
+
+
 Analyse des top wait
 
 🔍 Analyse des principaux wait_type que tu observes :

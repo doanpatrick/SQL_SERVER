@@ -10,6 +10,18 @@ ORDER BY q.query_id;
 
 
 
+SELECT 
+    r.session_id,
+    r.sql_handle,
+    r.plan_handle,
+    qp.query_plan,              -- plan actif avec paramètres runtime
+    st.text                     -- texte complet
+FROM sys.dm_exec_requests r
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) st
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) qp
+WHERE r.session_id <> @@SPID;
+
+
 
 Si vous recevez un message d’un collègue vous demandant de transférer de l’argent ou d’envoyer des informations sensibles, vous devez :
 

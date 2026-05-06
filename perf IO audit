@@ -549,3 +549,400 @@ PRINT '=== FIN AUDIT I/O & PERFORMANCE ===';
 SET NOCOUNT OFF;
 
 
+
+*****************
+
+
+
+
+Requête pour voir l'évolution des I/O d'une requête
+
+
+SELECT
+    q.query_id,
+    qt.query_sql_text,
+    rs.runtime_stats_interval_id,
+    rsi.start_time,
+    rsi.end_time,
+    rs.avg_logical_io_reads,
+    rs.avg_physical_io_reads,
+    rs.avg_logical_io_writes,
+    rs.count_executions
+FROM sys.query_store_query          q
+JOIN sys.query_store_query_text     qt  ON qt.query_text_id   = q.query_text_id
+JOIN sys.query_store_plan           p   ON p.query_id         = q.query_id
+JOIN sys.query_store_runtime_stats  rs  ON rs.plan_id         = p.plan_id
+JOIN sys.query_store_runtime_stats_interval rsi
+                                        ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+WHERE q.query_id = <ton_query_id>   -- ou filtre sur le texte
+ORDER BY rsi.start_time;
+
+
+Pour trouver les requêtes les plus gourmandes en I/O
+
+SELECT TOP 20
+    q.query_id,
+    qt.query_sql_text,
+    SUM(rs.avg_logical_io_reads * rs.count_executions) AS total_logical_reads,
+    SUM(rs.avg_physical_io_reads * rs.count_executions) AS total_physical_reads,
+    SUM(rs.count_executions) AS total_executions
+FROM sys.query_store_query          q
+JOIN sys.query_store_query_text     qt  ON qt.query_text_id = q.query_text_id
+JOIN sys.query_store_plan           p   ON p.query_id       = q.query_id
+JOIN sys.query_store_runtime_stats  rs  ON rs.plan_id       = p.plan_id
+GROUP BY q.query_id, qt.query_sql_text
+ORDER BY total_logical_reads DESC;
+
+Vue globale des I/O par intervalle de temps
+
+SELECT
+    rsi.start_time,
+    rsi.end_time,
+    COUNT(DISTINCT q.query_id)                                      AS nb_requetes,
+    SUM(rs.count_executions)                                        AS total_executions,
+    SUM(rs.avg_logical_io_reads  * rs.count_executions)             AS total_logical_reads,
+    SUM(rs.avg_logical_io_writes * rs.count_executions)             AS total_logical_writes,
+    SUM(rs.avg_physical_io_reads * rs.count_executions)             AS total_physical_reads,
+    -- Moyennes par exécution
+    SUM(rs.avg_logical_io_reads  * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0)                       AS avg_logical_reads_par_exec,
+    SUM(rs.avg_physical_io_reads * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0)                       AS avg_physical_reads_par_exec
+FROM sys.query_store_runtime_stats          rs
+JOIN sys.query_store_runtime_stats_interval rsi
+        ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+JOIN sys.query_store_plan                   p
+        ON p.plan_id   = rs.plan_id
+JOIN sys.query_store_query                  q
+        ON q.query_id  = p.query_id
+WHERE rsi.start_time >= '2026-04-01'
+  AND rsi.end_time   <= '2026-05-01'
+ORDER BY rsi.start_time;
+
+Comparer deux périodes (avant / après)
+
+
+WITH periode_avant AS (
+    SELECT
+        SUM(rs.avg_logical_io_reads  * rs.count_executions) AS total_logical_reads,
+        SUM(rs.avg_physical_io_reads * rs.count_executions) AS total_physical_reads,
+        SUM(rs.avg_logical_io_writes * rs.count_executions) AS total_logical_writes,
+        SUM(rs.count_executions)                            AS total_executions
+    FROM sys.query_store_runtime_stats          rs
+    JOIN sys.query_store_runtime_stats_interval rsi
+            ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+    WHERE rsi.start_time >= '2026-04-01'
+      AND rsi.end_time   <= '2026-04-15'
+),
+periode_apres AS (
+    SELECT
+        SUM(rs.avg_logical_io_reads  * rs.count_executions) AS total_logical_reads,
+        SUM(rs.avg_physical_io_reads * rs.count_executions) AS total_physical_reads,
+        SUM(rs.avg_logical_io_writes * rs.count_executions) AS total_logical_writes,
+        SUM(rs.count_executions)                            AS total_executions
+    FROM sys.query_store_runtime_stats          rs
+    JOIN sys.query_store_runtime_stats_interval rsi
+            ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+    WHERE rsi.start_time >= '2026-04-16'
+      AND rsi.end_time   <= '2026-04-30'
+)
+SELECT
+    'Avant'                         AS periode,
+    a.total_executions,
+    a.total_logical_reads,
+    a.total_physical_reads,
+    a.total_logical_writes
+FROM periode_avant a
+UNION ALL
+SELECT
+    'Après',
+    b.total_executions,
+    b.total_logical_reads,
+    b.total_physical_reads,
+    b.total_logical_writes
+FROM periode_apres b
+UNION ALL
+SELECT
+    'Delta (Après - Avant)',
+    b.total_executions    - a.total_executions,
+    b.total_logical_reads - a.total_logical_reads,
+    b.total_physical_reads- a.total_physical_reads,
+    b.total_logical_writes- a.total_logical_writes
+FROM periode_avant a, periode_apres b
+UNION ALL
+SELECT
+    'Variation %',
+    (b.total_executions     - a.total_executions)     * 100 / NULLIF(a.total_executions, 0),
+    (b.total_logical_reads  - a.total_logical_reads)  * 100 / NULLIF(a.total_logical_reads, 0),
+    (b.total_physical_reads - a.total_physical_reads) * 100 / NULLIF(a.total_physical_reads, 0),
+    (b.total_logical_writes - a.total_logical_writes) * 100 / NULLIF(a.total_logical_writes, 0)
+FROM periode_avant a, periode_apres b;
+
+
+Identifier les requêtes qui ont le plus dégradé entre deux périodes
+
+
+WITH avant AS (
+    SELECT
+        q.query_id,
+        qt.query_sql_text,
+        SUM(rs.avg_logical_io_reads * rs.count_executions)
+            / NULLIF(SUM(rs.count_executions), 0)   AS avg_logical_reads
+    FROM sys.query_store_runtime_stats          rs
+    JOIN sys.query_store_runtime_stats_interval rsi ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+    JOIN sys.query_store_plan                   p   ON p.plan_id  = rs.plan_id
+    JOIN sys.query_store_query                  q   ON q.query_id = p.query_id
+    JOIN sys.query_store_query_text             qt  ON qt.query_text_id = q.query_text_id
+    WHERE rsi.start_time >= '2026-04-01' AND rsi.end_time <= '2026-04-15'
+    GROUP BY q.query_id, qt.query_sql_text
+),
+apres AS (
+    SELECT
+        q.query_id,
+        SUM(rs.avg_logical_io_reads * rs.count_executions)
+            / NULLIF(SUM(rs.count_executions), 0)   AS avg_logical_reads
+    FROM sys.query_store_runtime_stats          rs
+    JOIN sys.query_store_runtime_stats_interval rsi ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+    JOIN sys.query_store_plan                   p   ON p.plan_id  = rs.plan_id
+    JOIN sys.query_store_query                  q   ON q.query_id = p.query_id
+    WHERE rsi.start_time >= '2026-04-16' AND rsi.end_time <= '2026-04-30'
+    GROUP BY q.query_id
+)
+SELECT TOP 20
+    av.query_id,
+    LEFT(av.query_sql_text, 100)            AS sql_extrait,
+    av.avg_logical_reads                    AS avg_reads_avant,
+    ap.avg_logical_reads                    AS avg_reads_apres,
+    ap.avg_logical_reads - av.avg_logical_reads AS delta,
+    (ap.avg_logical_reads - av.avg_logical_reads)
+        * 100 / NULLIF(av.avg_logical_reads, 0) AS variation_pct
+FROM avant av
+JOIN apres ap ON ap.query_id = av.query_id
+WHERE ap.avg_logical_reads > av.avg_logical_reads
+ORDER BY delta DESC;
+
+Conseils pratiques
+Paramètre
+Recommandation
+INTERVAL_LENGTH_MINUTES
+15 ou 30 min pour plus de granularité
+DATA_FLUSH_INTERVAL_SECONDS
+300 (défaut) suffisant
+MAX_STORAGE_SIZE_MB
+Augmenter si longue rétention souhaitée
+Contexte de chaque requête
+Penser à filtrer execution_type = 0 (exécutions normales)
+Tu veux ajouter le CPU ou la durée en parallèle des I/O pour avoir une vue plus complète ?
+
+
+Vue timeline complète — I/O + CPU + Durée
+
+
+SELECT
+    rsi.start_time,
+    rsi.end_time,
+    COUNT(DISTINCT q.query_id)                                                  AS nb_requetes,
+    SUM(rs.count_executions)                                                    AS total_executions,
+
+    -- I/O
+    SUM(rs.avg_logical_io_reads  * rs.count_executions)                         AS total_logical_reads,
+    SUM(rs.avg_logical_io_writes * rs.count_executions)                         AS total_logical_writes,
+    SUM(rs.avg_physical_io_reads * rs.count_executions)                         AS total_physical_reads,
+
+    -- CPU (microsecondes -> secondes)
+    SUM(rs.avg_cpu_time * rs.count_executions) / 1000000.0                      AS total_cpu_sec,
+    SUM(rs.avg_cpu_time * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0) / 1000.0                          AS avg_cpu_ms_par_exec,
+
+    -- Durée (microsecondes -> secondes)
+    SUM(rs.avg_duration * rs.count_executions) / 1000000.0                      AS total_duree_sec,
+    SUM(rs.avg_duration * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0) / 1000.0                          AS avg_duree_ms_par_exec,
+
+    -- Mémoire (KB)
+    SUM(rs.avg_query_max_used_memory * rs.count_executions) * 8                 AS total_memoire_kb,
+
+    -- Parallélisme
+    SUM(rs.avg_dop * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0)                                   AS avg_dop
+
+FROM sys.query_store_runtime_stats          rs
+JOIN sys.query_store_runtime_stats_interval rsi
+        ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+JOIN sys.query_store_plan                   p
+        ON p.plan_id  = rs.plan_id
+JOIN sys.query_store_query                  q
+        ON q.query_id = p.query_id
+WHERE rsi.start_time >= '2026-04-01'
+  AND rsi.end_time   <= '2026-05-01'
+  AND rs.execution_type = 0              -- exécutions normales uniquement
+ORDER BY rsi.start_time;
+
+Comparaison avant / après — toutes métriques
+
+WITH stats AS (
+    SELECT
+        CASE
+            WHEN rsi.start_time >= '2026-04-01' AND rsi.end_time <= '2026-04-15' THEN 'Avant'
+            WHEN rsi.start_time >= '2026-04-16' AND rsi.end_time <= '2026-04-30' THEN 'Après'
+        END                                                                 AS periode,
+        rs.count_executions,
+        rs.avg_logical_io_reads,
+        rs.avg_logical_io_writes,
+        rs.avg_physical_io_reads,
+        rs.avg_cpu_time,
+        rs.avg_duration,
+        rs.avg_query_max_used_memory,
+        rs.avg_dop
+    FROM sys.query_store_runtime_stats          rs
+    JOIN sys.query_store_runtime_stats_interval rsi
+            ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+    WHERE rs.execution_type = 0
+      AND (
+            (rsi.start_time >= '2026-04-01' AND rsi.end_time <= '2026-04-15')
+         OR (rsi.start_time >= '2026-04-16' AND rsi.end_time <= '2026-04-30')
+          )
+),
+agrege AS (
+    SELECT
+        periode,
+        SUM(count_executions)                                               AS total_exec,
+        SUM(avg_logical_io_reads  * count_executions)
+            / NULLIF(SUM(count_executions), 0)                              AS avg_logical_reads,
+        SUM(avg_logical_io_writes * count_executions)
+            / NULLIF(SUM(count_executions), 0)                              AS avg_logical_writes,
+        SUM(avg_physical_io_reads * count_executions)
+            / NULLIF(SUM(count_executions), 0)                              AS avg_physical_reads,
+        SUM(avg_cpu_time          * count_executions)
+            / NULLIF(SUM(count_executions), 0) / 1000.0                     AS avg_cpu_ms,
+        SUM(avg_duration          * count_executions)
+            / NULLIF(SUM(count_executions), 0) / 1000.0                     AS avg_duree_ms,
+        SUM(avg_query_max_used_memory * count_executions) * 8
+            / NULLIF(SUM(count_executions), 0)                              AS avg_mem_kb,
+        SUM(avg_dop               * count_executions)
+            / NULLIF(SUM(count_executions), 0)                              AS avg_dop
+    FROM stats
+    WHERE periode IS NOT NULL
+    GROUP BY periode
+)
+SELECT
+    a.periode,
+    a.total_exec,
+    a.avg_logical_reads,
+    a.avg_logical_writes,
+    a.avg_physical_reads,
+    a.avg_cpu_ms,
+    a.avg_duree_ms,
+    a.avg_mem_kb,
+    a.avg_dop
+FROM agrege a
+
+UNION ALL
+
+SELECT
+    'Variation %',
+    (ap.total_exec       - av.total_exec)       * 100 / NULLIF(av.total_exec, 0),
+    (ap.avg_logical_reads  - av.avg_logical_reads)  * 100 / NULLIF(av.avg_logical_reads, 0),
+    (ap.avg_logical_writes - av.avg_logical_writes) * 100 / NULLIF(av.avg_logical_writes, 0),
+    (ap.avg_physical_reads - av.avg_physical_reads) * 100 / NULLIF(av.avg_physical_reads, 0),
+    (ap.avg_cpu_ms         - av.avg_cpu_ms)         * 100 / NULLIF(av.avg_cpu_ms, 0),
+    (ap.avg_duree_ms       - av.avg_duree_ms)       * 100 / NULLIF(av.avg_duree_ms, 0),
+    (ap.avg_mem_kb         - av.avg_mem_kb)         * 100 / NULLIF(av.avg_mem_kb, 0),
+    (ap.avg_dop            - av.avg_dop)            * 100 / NULLIF(av.avg_dop, 0)
+FROM agrege av
+JOIN agrege ap ON av.periode = 'Avant' AND ap.periode = 'Après';
+
+
+Top requêtes dégradées — toutes métriques combinées
+
+
+
+
+WITH avant AS (
+    SELECT
+        q.query_id,
+        LEFT(qt.query_sql_text, 120)                                            AS sql_extrait,
+        SUM(rs.avg_logical_io_reads * rs.count_executions)
+            / NULLIF(SUM(rs.count_executions), 0)                               AS avg_logical_reads,
+        SUM(rs.avg_cpu_time         * rs.count_executions)
+            / NULLIF(SUM(rs.count_executions), 0) / 1000.0                      AS avg_cpu_ms,
+        SUM(rs.avg_duration         * rs.count_executions)
+            / NULLIF(SUM(rs.count_executions), 0) / 1000.0                      AS avg_duree_ms,
+        SUM(rs.count_executions)                                                AS total_exec
+    FROM sys.query_store_runtime_stats          rs
+    JOIN sys.query_store_runtime_stats_interval rsi ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+    JOIN sys.query_store_plan                   p   ON p.plan_id       = rs.plan_id
+    JOIN sys.query_store_query                  q   ON q.query_id      = p.query_id
+    JOIN sys.query_store_query_text             qt  ON qt.query_text_id = q.query_text_id
+    WHERE rsi.start_time >= '2026-04-01' AND rsi.end_time <= '2026-04-15'
+      AND rs.execution_type = 0
+    GROUP BY q.query_id, qt.query_sql_text
+),
+apres AS (
+    SELECT
+        q.query_id,
+        SUM(rs.avg_logical_io_reads * rs.count_executions)
+            / NULLIF(SUM(rs.count_executions), 0)                               AS avg_logical_reads,
+        SUM(rs.avg_cpu_time         * rs.count_executions)
+            / NULLIF(SUM(rs.count_executions), 0) / 1000.0                      AS avg_cpu_ms,
+        SUM(rs.avg_duration         * rs.count_executions)
+            / NULLIF(SUM(rs.count_executions), 0) / 1000.0                      AS avg_duree_ms,
+        SUM(rs.count_executions)                                                AS total_exec
+    FROM sys.query_store_runtime_stats          rs
+    JOIN sys.query_store_runtime_stats_interval rsi ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+    JOIN sys.query_store_plan                   p   ON p.plan_id  = rs.plan_id
+    JOIN sys.query_store_query                  q   ON q.query_id = p.query_id
+    WHERE rsi.start_time >= '2026-04-16' AND rsi.end_time <= '2026-04-30'
+      AND rs.execution_type = 0
+    GROUP BY q.query_id
+)
+SELECT TOP 20
+    av.query_id,
+    av.sql_extrait,
+    av.total_exec                                                               AS exec_avant,
+    ap.total_exec                                                               AS exec_apres,
+
+    ROUND(av.avg_logical_reads, 0)                                              AS io_avant,
+    ROUND(ap.avg_logical_reads, 0)                                              AS io_apres,
+    ROUND(ap.avg_logical_reads - av.avg_logical_reads, 0)                       AS io_delta,
+
+    ROUND(av.avg_cpu_ms, 2)                                                     AS cpu_ms_avant,
+    ROUND(ap.avg_cpu_ms, 2)                                                     AS cpu_ms_apres,
+    ROUND(ap.avg_cpu_ms - av.avg_cpu_ms, 2)                                     AS cpu_delta_ms,
+
+    ROUND(av.avg_duree_ms, 2)                                                   AS duree_ms_avant,
+    ROUND(ap.avg_duree_ms, 2)                                                   AS duree_ms_apres,
+    ROUND(ap.avg_duree_ms - av.avg_duree_ms, 2)                                 AS duree_delta_ms
+
+FROM avant av
+JOIN apres ap ON ap.query_id = av.query_id
+WHERE ap.avg_logical_reads > av.avg_logical_reads   -- changer selon métrique cible
+ORDER BY io_delta DESC;
+
+Récapitulatif des métriques disponibles
+Métrique
+Colonne Query Store
+Unité native
+Logical reads
+avg_logical_io_reads
+pages
+Logical writes
+avg_logical_io_writes
+pages
+Physical reads
+avg_physical_io_reads
+pages
+CPU
+avg_cpu_time
+microsecondes
+Durée
+avg_duration
+microsecondes
+Mémoire
+avg_query_max_used_memory
+pages 8KB
+Parallélisme
+avg_dop
+nombre de threads
+Écritures tempdb
+avg_tempdb_space_used

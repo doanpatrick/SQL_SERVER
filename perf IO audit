@@ -946,3 +946,33 @@ avg_dop
 nombre de threads
 Écritures tempdb
 avg_tempdb_space_used
+
+
+version corrigée globale io par intervalle de temps
+
+SELECT
+    rsi.start_time,
+    rsi.end_time,
+    COUNT(DISTINCT q.query_id)                                          AS nb_requetes,
+    SUM(rs.count_executions)                                            AS total_executions,
+    SUM(rs.avg_logical_io_reads  * rs.count_executions)                 AS total_logical_reads,
+    SUM(rs.avg_logical_io_writes * rs.count_executions)                 AS total_logical_writes,
+    SUM(rs.avg_physical_io_reads * rs.count_executions)                 AS total_physical_reads,
+    SUM(rs.avg_logical_io_reads  * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0)                           AS avg_logical_reads_par_exec,
+    SUM(rs.avg_physical_io_reads * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0)                           AS avg_physical_reads_par_exec
+FROM sys.query_store_runtime_stats          rs
+JOIN sys.query_store_runtime_stats_interval rsi
+        ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+JOIN sys.query_store_plan                   p
+        ON p.plan_id   = rs.plan_id
+JOIN sys.query_store_query                  q
+        ON q.query_id  = p.query_id
+WHERE rsi.start_time >= '2026-04-01'
+  AND rsi.end_time   <= '2026-05-01'
+GROUP BY                          -- <-- manquant dans la version précédente
+    rsi.runtime_stats_interval_id,
+    rsi.start_time,
+    rsi.end_time
+ORDER BY rsi.start_time;

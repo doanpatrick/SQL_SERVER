@@ -1,3 +1,16 @@
+SELECT 
+    q.query_id,
+    qt.query_sql_text,
+    q.object_id
+FROM sys.query_store_query q
+JOIN sys.query_store_query_text qt 
+    ON q.query_text_id = qt.query_text_id
+WHERE qt.query_sql_text LIKE '%nom_table_ou_mot_clé%'
+ORDER BY q.query_id;
+
+
+
+
 Si vous recevez un message d’un collègue vous demandant de transférer de l’argent ou d’envoyer des informations sensibles, vous devez :
 
 Accéder à sa demande

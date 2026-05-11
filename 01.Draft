@@ -1,4 +1,65 @@
 
+
+total physical read par semaine 
+
+SELECT
+    YEAR(rsi.start_time)                                                        AS annee,
+    DATEPART(WEEK, rsi.start_time)                                              AS semaine_numero,
+    -- Lundi de la semaine pour repère visuel
+    DATEADD(DAY, 1 - DATEPART(WEEKDAY, rsi.start_time), 
+            CAST(rsi.start_time AS DATE))                                        AS semaine_debut,
+    DATEADD(DAY, 7 - DATEPART(WEEKDAY, rsi.start_time), 
+            CAST(rsi.start_time AS DATE))                                        AS semaine_fin,
+
+    COUNT(DISTINCT q.query_id)                                                  AS nb_requetes,
+    SUM(rs.count_executions)                                                    AS total_executions,
+
+    -- Pages brutes
+    SUM(rs.avg_physical_io_reads * rs.count_executions)                         AS total_physical_reads_pages,
+
+    -- MB
+    SUM(rs.avg_physical_io_reads * rs.count_executions) * 8 / 1024.0           AS total_physical_reads_MB,
+
+    -- GB
+    SUM(rs.avg_physical_io_reads * rs.count_executions) * 8 / 1024.0 / 1024.0  AS total_physical_reads_GB,
+
+    -- TB
+    SUM(rs.avg_physical_io_reads * rs.count_executions) * 8 / 1024.0 / 1024.0 / 1024.0  AS total_physical_reads_TB,
+
+    -- Moyenne par exécution en MB
+    SUM(rs.avg_physical_io_reads * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0) * 8 / 1024.0                     AS avg_physical_reads_MB_par_exec
+
+FROM sys.query_store_runtime_stats          rs
+JOIN sys.query_store_runtime_stats_interval rsi
+        ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+JOIN sys.query_store_plan                   p
+        ON p.plan_id  = rs.plan_id
+JOIN sys.query_store_query                  q
+        ON q.query_id = p.query_id
+WHERE rsi.start_time >= '2025-05-01'
+  AND rsi.start_time <  '2026-05-01'
+  AND rs.execution_type = 0
+GROUP BY
+    YEAR(rsi.start_time),
+    DATEPART(WEEK, rsi.start_time),
+    DATEADD(DAY, 1 - DATEPART(WEEKDAY, rsi.start_time), 
+            CAST(rsi.start_time AS DATE)),
+    DATEADD(DAY, 7 - DATEPART(WEEKDAY, rsi.start_time), 
+            CAST(rsi.start_time AS DATE))
+ORDER BY
+    annee,
+    semaine_numero;
+
+
+
+
+
+
+
+
+
+
 total physical read par mois
 
 

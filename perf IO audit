@@ -1020,3 +1020,43 @@ GROUP BY
     rsi.end_time
 ORDER BY rsi.start_time;
 
+
+
+
+i/o par mois
+
+SELECT
+    YEAR(rsi.start_time)                                                    AS annee,
+    MONTH(rsi.start_time)                                                   AS mois,
+    -- Plus lisible : '2025-06' par exemple
+    FORMAT(rsi.start_time, 'yyyy-MM')                                       AS mois_label,
+
+    COUNT(DISTINCT q.query_id)                                              AS nb_requetes,
+    SUM(rs.count_executions)                                                AS total_executions,
+
+    -- Physical reads (l'essentiel ici)
+    SUM(rs.avg_physical_io_reads * rs.count_executions)                     AS total_physical_reads_pages,
+    SUM(rs.avg_physical_io_reads * rs.count_executions) * 8 / 1024.0       AS total_physical_reads_MB,
+    SUM(rs.avg_physical_io_reads * rs.count_executions) * 8 / 1024.0 / 1024.0  AS total_physical_reads_GB,
+
+    -- Moyenne par exécution
+    SUM(rs.avg_physical_io_reads * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0) * 8 / 1024.0                 AS avg_physical_reads_MB_par_exec
+
+FROM sys.query_store_runtime_stats          rs
+JOIN sys.query_store_runtime_stats_interval rsi
+        ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+JOIN sys.query_store_plan                   p
+        ON p.plan_id  = rs.plan_id
+JOIN sys.query_store_query                  q
+        ON q.query_id = p.query_id
+WHERE rsi.start_time >= '2025-05-01'        -- 1 an en arrière
+  AND rsi.start_time <  '2026-05-01'
+  AND rs.execution_type = 0
+GROUP BY
+    YEAR(rsi.start_time),
+    MONTH(rsi.start_time),
+    FORMAT(rsi.start_time, 'yyyy-MM')
+ORDER BY
+    annee,
+    mois;

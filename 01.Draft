@@ -47,40 +47,6 @@ ORDER BY
 
 
 
-
-
-
-SELECT
-    FORMAT(rsi.start_time, 'yyyy-MM')                                       AS mois_label,
-    COUNT(DISTINCT q.query_id)                                              AS nb_requetes,
-    SUM(rs.count_executions)                                                AS total_executions,
-
-    -- Cumul du mois (somme de toutes les exécutions du mois)
-    SUM(rs.avg_physical_io_reads * rs.count_executions)                     AS total_physical_reads_pages,
-    SUM(rs.avg_physical_io_reads * rs.count_executions) * 8 / 1024.0       AS total_physical_reads_MB,
-    SUM(rs.avg_physical_io_reads * rs.count_executions) * 8 / 1024.0 / 1024.0  AS total_physical_reads_GB,
-
-    -- Moyenne par exécution sur le mois
-    SUM(rs.avg_physical_io_reads * rs.count_executions)
-        / NULLIF(SUM(rs.count_executions), 0) * 8 / 1024.0                 AS avg_physical_reads_MB_par_exec
-
-FROM sys.query_store_runtime_stats          rs
-JOIN sys.query_store_runtime_stats_interval rsi
-        ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
-JOIN sys.query_store_plan                   p
-        ON p.plan_id  = rs.plan_id
-JOIN sys.query_store_query                  q
-        ON q.query_id = p.query_id
-WHERE rsi.start_time >= '2025-05-01'
-  AND rsi.start_time <  '2026-05-01'
-  AND rs.execution_type = 0
-GROUP BY
-    FORMAT(rsi.start_time, 'yyyy-MM')   -- <-- clé du regroupement mensuel
-ORDER BY
-    mois_label;
-
-
-
 SELECT 
     q.query_id,
     qt.query_sql_text,

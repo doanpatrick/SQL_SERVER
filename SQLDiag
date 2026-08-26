@@ -2906,3 +2906,15 @@ Fichier de config complet :
         </Trends>
     </Analysis>
 </dsConfig>
+
+
+***************************************************************************************************
+une fois les traces generé il faut lancer en ligne de commande le RML, s'il ny est pas l'installé. il injectera les trace daans une base défini
+dans notre cas instance XINFLWDBA0001\X_DBA_1 et nom de base perfanalysis105. Se placer dans le repertoire et lancer la commande suivante avec le premier fichier trace.
+
+Microsoft Windows [Version 10.0.20348.5256]
+(c) Microsoft Corporation. All rights reserved.
+
+C:\WINDOWS\system32>cd C:\Program Files\Microsoft Corporation\RMLUtils
+
+C:\Program Files\Microsoft Corporation\RMLUtils>readtrace -I"\\xdatlwlcb0105\l$\sqldiag_traces\XDATLWLCB0105_SQLDIAG_X_LCB_FR105_1_sp_trace.trc" -S"XINFLWDBA0001\X_DBA_1" -E -T146 -T35 -d"perfanalysis105"

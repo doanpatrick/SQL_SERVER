@@ -57,6 +57,23 @@ Adds -L to request large pages.
 
 .EXAMPLE
 .\DiskSpd_Benchmark_10092026.ps1 -TestFile "L:\Data\test.dat" -DiskSpdPath "D:\Tools\DiskSpd_2.3\amd64\diskspd.exe" -FileSize "200G" -DurationSeconds 180 -OutstandingIoValues 1,4,8,16
+
+Commande pour le lancer :
+************************
+
+Set-Location "D:\Tools\DiskSpd_2.3"
+.\DiskSpd_Benchmark_10092026.ps1 `
+  -TestFile "L:\Data\test.dat" `
+  -DiskSpdPath "D:\Tools\DiskSpd_2.3\amd64\diskspd.exe" `
+  -FileSize "200G" `
+  -DurationSeconds 180 `
+  -WarmupSeconds 15 `
+  -CooldownSeconds 10 `
+  -OutstandingIoValues 1,4,8,16 `
+  -ThreadCounts 1,4 `
+  -DisableHardwareCache
+
+
 #>
 [CmdletBinding()]
 param (

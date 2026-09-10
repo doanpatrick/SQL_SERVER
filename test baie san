@@ -1,0 +1,289 @@
+# ============================================================
+# BENCHMARK SAN POUR SQL SERVER AVEC DISKSPD
+# ============================================================
+
+# -------------------------
+# A MODIFIER
+# -------------------------
+
+$DiskSpd = "C:\Tools\DiskSpd\diskspd.exe"
+
+# ATTENTION : utiliser uniquement un LUN / disque de TEST
+$TestFile = "T:\DiskSpdTest\test.dat"
+
+# Taille du fichier de test
+$FileSize = "50G"
+
+# Durée de chaque test en secondes
+$Duration = 60
+
+# Dossier où seront stockés les résultats
+$ResultFolder = "C:\DiskSpdResults"
+
+
+# ============================================================
+# NE RIEN MODIFIER SOUS CETTE LIGNE
+# ============================================================
+
+if (-not (Test-Path $DiskSpd)) {
+    Write-Host "ERREUR : DiskSpd introuvable : $DiskSpd" -ForegroundColor Red
+    exit 1
+}
+
+$TestFolder = Split-Path $TestFile
+
+if (-not (Test-Path $TestFolder)) {
+    New-Item -ItemType Directory -Path $TestFolder -Force | Out-Null
+}
+
+if (-not (Test-Path $ResultFolder)) {
+    New-Item -ItemType Directory -Path $ResultFolder -Force | Out-Null
+}
+
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+$CSVFile = Join-Path $ResultFolder "DiskSpd_SQL_$Timestamp.csv"
+
+$Results = @()
+
+
+# ============================================================
+# FONCTION DE TEST
+# ============================================================
+
+function Run-DiskSpdTest {
+
+    param (
+        [string]$Name,
+        [string]$Description,
+        [string]$BlockSize,
+        [int]$WriteRatio,
+        [bool]$Random
+    )
+
+    Write-Host ""
+    Write-Host "====================================================" -ForegroundColor Cyan
+    Write-Host " TEST : $Name" -ForegroundColor Cyan
+    Write-Host " $Description"
+    Write-Host "====================================================" -ForegroundColor Cyan
+
+    $XMLFile = Join-Path $ResultFolder "$($Name)_$Timestamp.xml"
+
+    $Arguments = @(
+        "-c$FileSize"
+        "-d$Duration"
+        "-W10"
+        "-C5"
+        "-b$BlockSize"
+        "-w$WriteRatio"
+        "-t4"
+        "-o4"
+        "-Sh"
+        "-L"
+        "-Rxml"
+    )
+
+    if ($Random) {
+        $Arguments += "-r"
+    }
+
+    $Arguments += $TestFile
+
+    Write-Host "Lancement DiskSpd..."
+
+    & $DiskSpd $Arguments | Out-File `
+        -FilePath $XMLFile `
+        -Encoding utf8
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERREUR pendant le test $Name" -ForegroundColor Red
+        return
+    }
+
+
+    # ------------------------------
+    # Lecture XML
+    # ------------------------------
+
+    [xml]$XML = Get-Content $XMLFile
+
+    $TestTime = [double]$XML.Results.TimeSpan.TestTimeSeconds
+
+    $ReadCount = (
+        $XML.Results.TimeSpan.Thread.Target |
+        Measure-Object -Property ReadCount -Sum
+    ).Sum
+
+    $WriteCount = (
+        $XML.Results.TimeSpan.Thread.Target |
+        Measure-Object -Property WriteCount -Sum
+    ).Sum
+
+    $ReadBytes = (
+        $XML.Results.TimeSpan.Thread.Target |
+        Measure-Object -Property ReadBytes -Sum
+    ).Sum
+
+    $WriteBytes = (
+        $XML.Results.TimeSpan.Thread.Target |
+        Measure-Object -Property WriteBytes -Sum
+    ).Sum
+
+
+    # ------------------------------
+    # Calcul des métriques
+    # ------------------------------
+
+    $ReadIOPS  = $ReadCount / $TestTime
+    $WriteIOPS = $WriteCount / $TestTime
+
+    $TotalIOPS = $ReadIOPS + $WriteIOPS
+
+
+    $ReadMBps = ($ReadBytes / $TestTime) / 1MB
+    $WriteMBps = ($WriteBytes / $TestTime) / 1MB
+
+    $TotalMBps = $ReadMBps + $WriteMBps
+
+
+    $ReadLatency = $XML.Results.TimeSpan.Latency.AverageReadMilliseconds
+
+    $WriteLatency = $XML.Results.TimeSpan.Latency.AverageWriteMilliseconds
+
+
+    # Latence totale approximative pondérée
+
+    $TotalIO = $ReadCount + $WriteCount
+
+    if ($TotalIO -gt 0) {
+
+        $TotalLatency = (
+            ($ReadLatency * $ReadCount) +
+            ($WriteLatency * $WriteCount)
+        ) / $TotalIO
+
+    }
+    else {
+        $TotalLatency = 0
+    }
+
+
+    # ------------------------------
+    # Création résultat
+    # ------------------------------
+
+    $Result = [PSCustomObject]@{
+
+        Test                = $Name
+
+        Description         = $Description
+
+        BlockSize           = $BlockSize
+
+        ReadPercent         = 100 - $WriteRatio
+
+        WritePercent        = $WriteRatio
+
+        Total_IOPS          = [math]::Round($TotalIOPS, 0)
+
+        Read_IOPS           = [math]::Round($ReadIOPS, 0)
+
+        Write_IOPS          = [math]::Round($WriteIOPS, 0)
+
+        Total_MBps          = [math]::Round($TotalMBps, 2)
+
+        Read_MBps           = [math]::Round($ReadMBps, 2)
+
+        Write_MBps          = [math]::Round($WriteMBps, 2)
+
+        Avg_Latency_ms      = [math]::Round($TotalLatency, 3)
+
+        Read_Latency_ms     = [math]::Round(
+                                [double]$ReadLatency,
+                                3
+                              )
+
+        Write_Latency_ms    = [math]::Round(
+                                [double]$WriteLatency,
+                                3
+                              )
+    }
+
+
+    Write-Host ""
+    Write-Host "RESULTAT :" -ForegroundColor Green
+
+    $Result | Format-Table -AutoSize
+
+    return $Result
+}
+
+
+# ============================================================
+# TEST 1
+# SQL DATA : RANDOM READ 8K
+# ============================================================
+
+$Results += Run-DiskSpdTest `
+    -Name "01_SQL_Read_8K" `
+    -Description "SQL Server DATA - lecture aleatoire 8K" `
+    -BlockSize "8K" `
+    -WriteRatio 0 `
+    -Random $true
+
+
+# ============================================================
+# TEST 2
+# SQL OLTP : 70% READ / 30% WRITE
+# ============================================================
+
+$Results += Run-DiskSpdTest `
+    -Name "02_SQL_OLTP_8K_70R30W" `
+    -Description "SQL Server OLTP - 70% lecture / 30% ecriture" `
+    -BlockSize "8K" `
+    -WriteRatio 30 `
+    -Random $true
+
+
+# ============================================================
+# TEST 3
+# SEQUENTIAL READ 1M
+# ============================================================
+
+$Results += Run-DiskSpdTest `
+    -Name "03_SQL_Sequential_Read_1M" `
+    -Description "Lecture sequentielle - debit SAN" `
+    -BlockSize "1M" `
+    -WriteRatio 0 `
+    -Random $false
+
+
+# ============================================================
+# EXPORT CSV
+# ============================================================
+
+$Results |
+    Export-Csv `
+    -Path $CSVFile `
+    -Delimiter ";" `
+    -NoTypeInformation `
+    -Encoding UTF8
+
+
+Write-Host ""
+Write-Host "====================================================" -ForegroundColor Green
+Write-Host " TESTS TERMINES" -ForegroundColor Green
+Write-Host "====================================================" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "CSV : $CSVFile" -ForegroundColor Yellow
+Write-Host ""
+
+$Results | Format-Table `
+    Test,
+    Total_IOPS,
+    Total_MBps,
+    Avg_Latency_ms,
+    Read_Latency_ms,
+    Write_Latency_ms `
+    -AutoSize

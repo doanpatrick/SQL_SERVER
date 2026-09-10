@@ -1,289 +1,500 @@
-# ============================================================
-# BENCHMARK SAN POUR SQL SERVER AVEC DISKSPD
-# ============================================================
+<#
+.SYNOPSIS
+Run a SQL Server oriented SAN benchmark with DiskSpd.
 
-# -------------------------
-# A MODIFIER
-# -------------------------
+.DESCRIPTION
+Executes several DiskSpd profiles aligned with typical SQL Server workloads:
+- DATA random read
+- DATA OLTP mixed read/write
+- LOG sequential write
+- TEMPDB random mixed read/write
+- BACKUP sequential read and write
 
-$DiskSpd = "C:\Tools\DiskSpd\diskspd.exe"
+Results are exported in CSV, JSON, HTML and raw XML per test.
 
-# ATTENTION : utiliser uniquement un LUN / disque de TEST
-$TestFile = "T:\DiskSpdTest\test.dat"
+.NOTES
+Author: GitHub Copilot
+Date: 2026/09/10
 
-# Taille du fichier de test
-$FileSize = "50G"
+.PARAMETER DiskSpdPath
+Full path to diskspd.exe.
 
-# Durée de chaque test en secondes
-$Duration = 60
+.PARAMETER TestFile
+Full path to the DiskSpd test file.
 
-# Dossier où seront stockés les résultats
-$ResultFolder = "C:\DiskSpdResults"
+.PARAMETER FileSize
+Size of the test file created by DiskSpd.
 
+.PARAMETER DurationSeconds
+Duration of each test in seconds, excluding warmup and cooldown.
 
-# ============================================================
-# NE RIEN MODIFIER SOUS CETTE LIGNE
-# ============================================================
+.PARAMETER WarmupSeconds
+Warmup duration in seconds.
 
-if (-not (Test-Path $DiskSpd)) {
-    Write-Host "ERREUR : DiskSpd introuvable : $DiskSpd" -ForegroundColor Red
-    exit 1
+.PARAMETER CooldownSeconds
+Cooldown duration in seconds.
+
+.PARAMETER ResultFolder
+Directory where CSV, JSON, HTML and XML files will be stored.
+
+.PARAMETER HtmlTitle
+Title used in the generated HTML report.
+
+.PARAMETER ThreadCounts
+Thread counts to test.
+
+.PARAMETER OutstandingIoValues
+Outstanding I/O values to test.
+
+.PARAMETER DisableHardwareCache
+Adds -Sh to disable software and hardware caching where supported.
+
+.PARAMETER UseLargePages
+Adds -L to request large pages.
+
+.EXAMPLE
+.\DiskSpd_Benchmark_10092026.ps1
+
+.EXAMPLE
+.\DiskSpd_Benchmark_10092026.ps1 -TestFile "L:\Data\test.dat" -DiskSpdPath "D:\Tools\DiskSpd_2.3\amd64\diskspd.exe" -FileSize "200G" -DurationSeconds 180 -OutstandingIoValues 1,4,8,16
+#>
+[CmdletBinding()]
+param (
+    [ValidateNotNullOrEmpty()]
+    [string]$TestFile = "L:\Data\test.dat",
+
+    [ValidateNotNullOrEmpty()]
+    [string]$DiskSpdPath = "D:\Tools\DiskSpd_2.3\amd64\diskspd.exe",
+
+    [ValidateNotNullOrEmpty()]
+    [string]$FileSize = "200G",
+
+    [ValidateRange(30, 3600)]
+    [int]$DurationSeconds = 180,
+
+    [ValidateRange(0, 600)]
+    [int]$WarmupSeconds = 15,
+
+    [ValidateRange(0, 600)]
+    [int]$CooldownSeconds = 10,
+
+    [ValidateNotNullOrEmpty()]
+    [int[]]$ThreadCounts = @(1, 4),
+
+    [ValidateNotNullOrEmpty()]
+    [int[]]$OutstandingIoValues = @(1, 4, 8, 16),
+
+    [switch]$DisableHardwareCache,
+
+    [switch]$UseLargePages,
+
+    [switch]$SkipBackupProfiles,
+
+    [switch]$SkipTempDbProfile,
+
+    [string]$ResultFolder,
+
+    [string]$HtmlTitle = 'DiskSpd SQL Server Benchmark Report'
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($ResultFolder)) {
+    $baseResultPath = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+    $ResultFolder = Join-Path -Path $baseResultPath -ChildPath 'result'
 }
 
-$TestFolder = Split-Path $TestFile
+function Test-DiskSpdXmlValue {
+    param (
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
 
-if (-not (Test-Path $TestFolder)) {
-    New-Item -ItemType Directory -Path $TestFolder -Force | Out-Null
+    return $null -ne $Value -and [string]::IsNullOrWhiteSpace([string]$Value) -eq $false
 }
 
-if (-not (Test-Path $ResultFolder)) {
+function Get-DiskSpdDouble {
+    param (
+        [Parameter(Mandatory = $false)]
+        [object]$Value
+    )
+
+    if (-not (Test-DiskSpdXmlValue -Value $Value)) {
+        return 0D
+    }
+
+    return [double]$Value
+}
+
+function Get-DiskSpdTargetStats {
+    param (
+        [Parameter(Mandatory = $true)]
+        [xml]$Xml
+    )
+
+    $targets = @($Xml.Results.TimeSpan.Thread.Target)
+
+    if ($targets.Count -eq 0) {
+        throw 'DiskSpd XML does not contain any target statistics.'
+    }
+
+    $readCount = ($targets | Measure-Object -Property ReadCount -Sum).Sum
+    $writeCount = ($targets | Measure-Object -Property WriteCount -Sum).Sum
+    $readBytes = ($targets | Measure-Object -Property ReadBytes -Sum).Sum
+    $writeBytes = ($targets | Measure-Object -Property WriteBytes -Sum).Sum
+
+    return [PSCustomObject]@{
+        ReadCount  = Get-DiskSpdDouble -Value $readCount
+        WriteCount = Get-DiskSpdDouble -Value $writeCount
+        ReadBytes  = Get-DiskSpdDouble -Value $readBytes
+        WriteBytes = Get-DiskSpdDouble -Value $writeBytes
+    }
+}
+
+function New-DiskSpdProfile {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BlockSize,
+
+        [ValidateRange(0, 100)]
+        [int]$WritePercent,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$Random,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TargetArea
+    )
+
+    return [PSCustomObject]@{
+        Name         = $Name
+        Description  = $Description
+        BlockSize    = $BlockSize
+        WritePercent = $WritePercent
+        Random       = $Random
+        TargetArea   = $TargetArea
+    }
+}
+
+function Convert-DiskSpdResultsToHtml {
+    param (
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Generic.List[object]]$Results,
+
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Generic.List[object]]$Failures,
+
+        [Parameter(Mandatory = $true)]
+        [string]$HtmlFile,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Title,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Timestamp,
+
+        [Parameter(Mandatory = $true)]
+        [string]$CsvFile,
+
+        [Parameter(Mandatory = $true)]
+        [string]$JsonFile
+    )
+
+    $style = @"
+<style>
+body {
+    font-family: Segoe UI, Arial, sans-serif;
+    margin: 24px;
+    background: #f6f8fb;
+    color: #1f2937;
+}
+h1, h2 {
+    color: #0f172a;
+}
+.meta {
+    margin: 0 0 20px 0;
+    padding: 16px;
+    background: #ffffff;
+    border: 1px solid #dbe2ea;
+    border-radius: 8px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 24px;
+    background: #ffffff;
+}
+th {
+    background: #0f766e;
+    color: #ffffff;
+    padding: 10px;
+    text-align: left;
+    position: sticky;
+    top: 0;
+}
+td {
+    border-bottom: 1px solid #e5e7eb;
+    padding: 8px 10px;
+}
+tr:nth-child(even) td {
+    background: #f8fafc;
+}
+.warning th {
+    background: #b45309;
+}
+</style>
+"@
+
+    $resultRows = $Results |
+        Sort-Object -Property TargetArea, Test |
+        Select-Object Test, TargetArea, Description, BlockSize, ReadPercent, WritePercent, Random, Threads, OutstandingIo, DurationSeconds, Total_IOPS, Read_IOPS, Write_IOPS, Total_MBps, Read_MBps, Write_MBps, Avg_Latency_ms, Read_Latency_ms, Write_Latency_ms, XmlFile |
+        ConvertTo-Html -Fragment -PreContent '<h2>Results</h2>'
+
+    $failureRows = if ($Failures.Count -gt 0) {
+        ($Failures | ConvertTo-Html -Fragment -PreContent '<h2>Failures</h2>') -replace '<table>', '<table class="warning">'
+    }
+    else {
+        '<h2>Failures</h2><p>No failure recorded.</p>'
+    }
+
+    $preContent = @"
+<h1>$Title</h1>
+<div class="meta">
+<p><strong>Generated:</strong> $Timestamp</p>
+<p><strong>DiskSpd:</strong> $DiskSpdPath</p>
+<p><strong>Test file:</strong> $TestFile</p>
+<p><strong>File size:</strong> $FileSize</p>
+<p><strong>Duration:</strong> $DurationSeconds s | <strong>Warmup:</strong> $WarmupSeconds s | <strong>Cooldown:</strong> $CooldownSeconds s</p>
+<p><strong>Threads:</strong> $($ThreadCounts -join ', ') | <strong>Outstanding IO:</strong> $($OutstandingIoValues -join ', ')</p>
+<p><strong>CSV:</strong> $CsvFile</p>
+<p><strong>JSON:</strong> $JsonFile</p>
+</div>
+"@
+
+    ConvertTo-Html -Title $Title -Head $style -PreContent $preContent -Body ($resultRows + $failureRows) |
+        Out-File -FilePath $HtmlFile -Encoding utf8
+}
+
+function Invoke-DiskSpdProfile {
+    param (
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Profile,
+
+        [Parameter(Mandatory = $true)]
+        [int]$ThreadCount,
+
+        [Parameter(Mandatory = $true)]
+        [int]$OutstandingIo,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Timestamp
+    )
+
+    $testName = '{0}_T{1}_O{2}' -f $Profile.Name, $ThreadCount, $OutstandingIo
+    $xmlFile = Join-Path -Path $ResultFolder -ChildPath ($testName + '_' + $Timestamp + '.xml')
+
+    Write-Host ''
+    Write-Host '====================================================' -ForegroundColor Cyan
+    Write-Host (' TEST : {0}' -f $testName) -ForegroundColor Cyan
+    Write-Host (' {0}' -f $Profile.Description)
+    Write-Host (' Area={0} | Block={1} | Write={2}% | Random={3} | Threads={4} | OIO={5}' -f `
+        $Profile.TargetArea,
+        $Profile.BlockSize,
+        $Profile.WritePercent,
+        $Profile.Random,
+        $ThreadCount,
+        $OutstandingIo)
+    Write-Host '====================================================' -ForegroundColor Cyan
+
+    $arguments = @(
+        ('-c{0}' -f $FileSize)
+        ('-d{0}' -f $DurationSeconds)
+        ('-W{0}' -f $WarmupSeconds)
+        ('-C{0}' -f $CooldownSeconds)
+        ('-b{0}' -f $Profile.BlockSize)
+        ('-w{0}' -f $Profile.WritePercent)
+        ('-t{0}' -f $ThreadCount)
+        ('-o{0}' -f $OutstandingIo)
+        '-Rxml'
+    )
+
+    if ($Profile.Random) {
+        $arguments += '-r'
+    }
+
+    if ($DisableHardwareCache.IsPresent) {
+        $arguments += '-Sh'
+    }
+
+    if ($UseLargePages.IsPresent) {
+        $arguments += '-L'
+    }
+
+    $arguments += $TestFile
+
+    Write-Host 'Lancement DiskSpd...'
+
+    & $DiskSpdPath $arguments | Out-File -FilePath $xmlFile -Encoding utf8
+
+    if ($LASTEXITCODE -ne 0) {
+        throw ('DiskSpd exited with code {0} for test {1}.' -f $LASTEXITCODE, $testName)
+    }
+
+    [xml]$xml = Get-Content -Path $xmlFile
+
+    if (-not (Test-DiskSpdXmlValue -Value $xml.Results.TimeSpan.TestTimeSeconds)) {
+        throw ('DiskSpd XML is missing TestTimeSeconds for test {0}.' -f $testName)
+    }
+
+    $testTime = [double]$xml.Results.TimeSpan.TestTimeSeconds
+
+    if ($testTime -le 0) {
+        throw ('DiskSpd XML returned a non-positive test duration for test {0}.' -f $testName)
+    }
+
+    $stats = Get-DiskSpdTargetStats -Xml $xml
+    $latency = $xml.Results.TimeSpan.Latency
+
+    $readLatencyMs = Get-DiskSpdDouble -Value $latency.AverageReadMilliseconds
+    $writeLatencyMs = Get-DiskSpdDouble -Value $latency.AverageWriteMilliseconds
+
+    $readIops = $stats.ReadCount / $testTime
+    $writeIops = $stats.WriteCount / $testTime
+    $totalIops = $readIops + $writeIops
+
+    $readMBps = ($stats.ReadBytes / $testTime) / 1MB
+    $writeMBps = ($stats.WriteBytes / $testTime) / 1MB
+    $totalMBps = $readMBps + $writeMBps
+
+    $totalIo = $stats.ReadCount + $stats.WriteCount
+    $avgLatencyMs = 0D
+
+    if ($totalIo -gt 0) {
+        $avgLatencyMs = (($readLatencyMs * $stats.ReadCount) + ($writeLatencyMs * $stats.WriteCount)) / $totalIo
+    }
+
+    return [PSCustomObject]@{
+        Test             = $testName
+        TargetArea       = $Profile.TargetArea
+        Description      = $Profile.Description
+        BlockSize        = $Profile.BlockSize
+        ReadPercent      = 100 - $Profile.WritePercent
+        WritePercent     = $Profile.WritePercent
+        Random           = $Profile.Random
+        Threads          = $ThreadCount
+        OutstandingIo    = $OutstandingIo
+        DurationSeconds  = [math]::Round($testTime, 2)
+        Total_IOPS       = [math]::Round($totalIops, 0)
+        Read_IOPS        = [math]::Round($readIops, 0)
+        Write_IOPS       = [math]::Round($writeIops, 0)
+        Total_MBps       = [math]::Round($totalMBps, 2)
+        Read_MBps        = [math]::Round($readMBps, 2)
+        Write_MBps       = [math]::Round($writeMBps, 2)
+        Avg_Latency_ms   = [math]::Round($avgLatencyMs, 3)
+        Read_Latency_ms  = [math]::Round($readLatencyMs, 3)
+        Write_Latency_ms = [math]::Round($writeLatencyMs, 3)
+        XmlFile          = $xmlFile
+    }
+}
+
+if (-not (Test-Path -Path $DiskSpdPath)) {
+    throw ('DiskSpd executable not found: {0}' -f $DiskSpdPath)
+}
+
+$testFolder = Split-Path -Path $TestFile -Parent
+
+if (-not (Test-Path -Path $testFolder)) {
+    New-Item -ItemType Directory -Path $testFolder -Force | Out-Null
+}
+
+if (-not (Test-Path -Path $ResultFolder)) {
     New-Item -ItemType Directory -Path $ResultFolder -Force | Out-Null
 }
 
-$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$csvFile = Join-Path -Path $ResultFolder -ChildPath ('DiskSpd_SQL_' + $timestamp + '.csv')
+$jsonFile = Join-Path -Path $ResultFolder -ChildPath ('DiskSpd_SQL_' + $timestamp + '.json')
+$htmlFile = Join-Path -Path $ResultFolder -ChildPath ('DiskSpd_SQL_' + $timestamp + '.html')
 
-$CSVFile = Join-Path $ResultFolder "DiskSpd_SQL_$Timestamp.csv"
+$profiles = @(
+    (New-DiskSpdProfile -Name '01_DATA_RandomRead_8K' -Description 'SQL Server DATA - random read 8K' -BlockSize '8K' -WritePercent 0 -Random $true -TargetArea 'DATA')
+    (New-DiskSpdProfile -Name '02_DATA_OLTP_8K_70R30W' -Description 'SQL Server DATA - OLTP 8K 70 percent read 30 percent write' -BlockSize '8K' -WritePercent 30 -Random $true -TargetArea 'DATA')
+    (New-DiskSpdProfile -Name '03_LOG_SequentialWrite_64K' -Description 'SQL Server LOG - sequential write 64K' -BlockSize '64K' -WritePercent 100 -Random $false -TargetArea 'LOG')
+)
 
-$Results = @()
-
-
-# ============================================================
-# FONCTION DE TEST
-# ============================================================
-
-function Run-DiskSpdTest {
-
-    param (
-        [string]$Name,
-        [string]$Description,
-        [string]$BlockSize,
-        [int]$WriteRatio,
-        [bool]$Random
-    )
-
-    Write-Host ""
-    Write-Host "====================================================" -ForegroundColor Cyan
-    Write-Host " TEST : $Name" -ForegroundColor Cyan
-    Write-Host " $Description"
-    Write-Host "====================================================" -ForegroundColor Cyan
-
-    $XMLFile = Join-Path $ResultFolder "$($Name)_$Timestamp.xml"
-
-    $Arguments = @(
-        "-c$FileSize"
-        "-d$Duration"
-        "-W10"
-        "-C5"
-        "-b$BlockSize"
-        "-w$WriteRatio"
-        "-t4"
-        "-o4"
-        "-Sh"
-        "-L"
-        "-Rxml"
-    )
-
-    if ($Random) {
-        $Arguments += "-r"
-    }
-
-    $Arguments += $TestFile
-
-    Write-Host "Lancement DiskSpd..."
-
-    & $DiskSpd $Arguments | Out-File `
-        -FilePath $XMLFile `
-        -Encoding utf8
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "ERREUR pendant le test $Name" -ForegroundColor Red
-        return
-    }
-
-
-    # ------------------------------
-    # Lecture XML
-    # ------------------------------
-
-    [xml]$XML = Get-Content $XMLFile
-
-    $TestTime = [double]$XML.Results.TimeSpan.TestTimeSeconds
-
-    $ReadCount = (
-        $XML.Results.TimeSpan.Thread.Target |
-        Measure-Object -Property ReadCount -Sum
-    ).Sum
-
-    $WriteCount = (
-        $XML.Results.TimeSpan.Thread.Target |
-        Measure-Object -Property WriteCount -Sum
-    ).Sum
-
-    $ReadBytes = (
-        $XML.Results.TimeSpan.Thread.Target |
-        Measure-Object -Property ReadBytes -Sum
-    ).Sum
-
-    $WriteBytes = (
-        $XML.Results.TimeSpan.Thread.Target |
-        Measure-Object -Property WriteBytes -Sum
-    ).Sum
-
-
-    # ------------------------------
-    # Calcul des métriques
-    # ------------------------------
-
-    $ReadIOPS  = $ReadCount / $TestTime
-    $WriteIOPS = $WriteCount / $TestTime
-
-    $TotalIOPS = $ReadIOPS + $WriteIOPS
-
-
-    $ReadMBps = ($ReadBytes / $TestTime) / 1MB
-    $WriteMBps = ($WriteBytes / $TestTime) / 1MB
-
-    $TotalMBps = $ReadMBps + $WriteMBps
-
-
-    $ReadLatency = $XML.Results.TimeSpan.Latency.AverageReadMilliseconds
-
-    $WriteLatency = $XML.Results.TimeSpan.Latency.AverageWriteMilliseconds
-
-
-    # Latence totale approximative pondérée
-
-    $TotalIO = $ReadCount + $WriteCount
-
-    if ($TotalIO -gt 0) {
-
-        $TotalLatency = (
-            ($ReadLatency * $ReadCount) +
-            ($WriteLatency * $WriteCount)
-        ) / $TotalIO
-
-    }
-    else {
-        $TotalLatency = 0
-    }
-
-
-    # ------------------------------
-    # Création résultat
-    # ------------------------------
-
-    $Result = [PSCustomObject]@{
-
-        Test                = $Name
-
-        Description         = $Description
-
-        BlockSize           = $BlockSize
-
-        ReadPercent         = 100 - $WriteRatio
-
-        WritePercent        = $WriteRatio
-
-        Total_IOPS          = [math]::Round($TotalIOPS, 0)
-
-        Read_IOPS           = [math]::Round($ReadIOPS, 0)
-
-        Write_IOPS          = [math]::Round($WriteIOPS, 0)
-
-        Total_MBps          = [math]::Round($TotalMBps, 2)
-
-        Read_MBps           = [math]::Round($ReadMBps, 2)
-
-        Write_MBps          = [math]::Round($WriteMBps, 2)
-
-        Avg_Latency_ms      = [math]::Round($TotalLatency, 3)
-
-        Read_Latency_ms     = [math]::Round(
-                                [double]$ReadLatency,
-                                3
-                              )
-
-        Write_Latency_ms    = [math]::Round(
-                                [double]$WriteLatency,
-                                3
-                              )
-    }
-
-
-    Write-Host ""
-    Write-Host "RESULTAT :" -ForegroundColor Green
-
-    $Result | Format-Table -AutoSize
-
-    return $Result
+if (-not $SkipTempDbProfile.IsPresent) {
+    $profiles += New-DiskSpdProfile -Name '04_TEMPDB_8K_50R50W' -Description 'SQL Server TEMPDB - random 8K 50 percent read 50 percent write' -BlockSize '8K' -WritePercent 50 -Random $true -TargetArea 'TEMPDB'
 }
 
+if (-not $SkipBackupProfiles.IsPresent) {
+    $profiles += @(
+        (New-DiskSpdProfile -Name '05_BACKUP_SequentialRead_1M' -Description 'SQL Server BACKUP/RESTORE - sequential read 1M' -BlockSize '1M' -WritePercent 0 -Random $false -TargetArea 'BACKUP')
+        (New-DiskSpdProfile -Name '06_BACKUP_SequentialWrite_1M' -Description 'SQL Server BACKUP - sequential write 1M' -BlockSize '1M' -WritePercent 100 -Random $false -TargetArea 'BACKUP')
+    )
+}
 
-# ============================================================
-# TEST 1
-# SQL DATA : RANDOM READ 8K
-# ============================================================
+$results = New-Object System.Collections.Generic.List[object]
+$failures = New-Object System.Collections.Generic.List[object]
 
-$Results += Run-DiskSpdTest `
-    -Name "01_SQL_Read_8K" `
-    -Description "SQL Server DATA - lecture aleatoire 8K" `
-    -BlockSize "8K" `
-    -WriteRatio 0 `
-    -Random $true
+foreach ($profile in $profiles) {
+    foreach ($threadCount in $ThreadCounts) {
+        foreach ($outstandingIo in $OutstandingIoValues) {
+            try {
+                $result = Invoke-DiskSpdProfile -Profile $profile -ThreadCount $threadCount -OutstandingIo $outstandingIo -Timestamp $timestamp
+                $results.Add($result)
+                $result | Format-Table -AutoSize
+            }
+            catch {
+                $failure = [PSCustomObject]@{
+                    Test  = '{0}_T{1}_O{2}' -f $profile.Name, $threadCount, $outstandingIo
+                    Error = $_.Exception.Message
+                }
 
+                $failures.Add($failure)
+                Write-Host ('ERREUR: {0}' -f $failure.Error) -ForegroundColor Red
+            }
+        }
+    }
+}
 
-# ============================================================
-# TEST 2
-# SQL OLTP : 70% READ / 30% WRITE
-# ============================================================
+if ($results.Count -eq 0) {
+    throw 'No benchmark result was collected. Check DiskSpd configuration and target storage.'
+}
 
-$Results += Run-DiskSpdTest `
-    -Name "02_SQL_OLTP_8K_70R30W" `
-    -Description "SQL Server OLTP - 70% lecture / 30% ecriture" `
-    -BlockSize "8K" `
-    -WriteRatio 30 `
-    -Random $true
+$results |
+    Sort-Object -Property TargetArea, Test |
+    Export-Csv -Path $csvFile -Delimiter ';' -NoTypeInformation -Encoding UTF8
 
+$results |
+    Sort-Object -Property TargetArea, Test |
+    ConvertTo-Json -Depth 4 |
+    Out-File -FilePath $jsonFile -Encoding utf8
 
-# ============================================================
-# TEST 3
-# SEQUENTIAL READ 1M
-# ============================================================
+Convert-DiskSpdResultsToHtml -Results $results -Failures $failures -HtmlFile $htmlFile -Title $HtmlTitle -Timestamp $timestamp -CsvFile $csvFile -JsonFile $jsonFile
 
-$Results += Run-DiskSpdTest `
-    -Name "03_SQL_Sequential_Read_1M" `
-    -Description "Lecture sequentielle - debit SAN" `
-    -BlockSize "1M" `
-    -WriteRatio 0 `
-    -Random $false
+Write-Host ''
+Write-Host '====================================================' -ForegroundColor Green
+Write-Host ' TESTS TERMINES' -ForegroundColor Green
+Write-Host '====================================================' -ForegroundColor Green
+Write-Host ''
+Write-Host ('CSV  : {0}' -f $csvFile) -ForegroundColor Yellow
+Write-Host ('JSON : {0}' -f $jsonFile) -ForegroundColor Yellow
+Write-Host ('HTML : {0}' -f $htmlFile) -ForegroundColor Yellow
+Write-Host ''
 
+$results |
+    Sort-Object -Property TargetArea, Test |
+    Format-Table Test, TargetArea, Threads, OutstandingIo, Total_IOPS, Total_MBps, Avg_Latency_ms, Read_Latency_ms, Write_Latency_ms -AutoSize
 
-# ============================================================
-# EXPORT CSV
-# ============================================================
-
-$Results |
-    Export-Csv `
-    -Path $CSVFile `
-    -Delimiter ";" `
-    -NoTypeInformation `
-    -Encoding UTF8
-
-
-Write-Host ""
-Write-Host "====================================================" -ForegroundColor Green
-Write-Host " TESTS TERMINES" -ForegroundColor Green
-Write-Host "====================================================" -ForegroundColor Green
-
-Write-Host ""
-Write-Host "CSV : $CSVFile" -ForegroundColor Yellow
-Write-Host ""
-
-$Results | Format-Table `
-    Test,
-    Total_IOPS,
-    Total_MBps,
-    Avg_Latency_ms,
-    Read_Latency_ms,
-    Write_Latency_ms `
-    -AutoSize
+if ($failures.Count -gt 0) {
+    Write-Host ''
+    Write-Host 'ECHECS :' -ForegroundColor Yellow
+    $failures | Format-Table -AutoSize
+}

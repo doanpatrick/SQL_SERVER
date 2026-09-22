@@ -12,6 +12,25 @@ Executes several DiskSpd profiles aligned with typical SQL Server workloads:
 
 Results are exported in CSV, JSON and raw XML per test.
 
+
+********************************************
+Commande line sur Powershell
+
+Set-Location "D:\Tools\DiskSpd_2.3"
+.\DiskSpd_Benchmark_modify_Latencies_V3.ps1 `
+  -TestFile "L:\Data\test.dat" `
+  -DiskSpdPath "D:\Tools\DiskSpd_2.3\amd64\diskspd.exe" `
+  -FileSize "500G" `
+  -DurationSeconds 180 `
+  -WarmupSeconds 15 `
+  -CooldownSeconds 10 `
+  -OutstandingIoValues 1,4,8,16 `
+  -ThreadCounts 1,4 `
+  -DisableHardwareCache
+
+
+  ************************************
+
 .NOTES
 Author: GitHub Copilot
 Date: 2026/09/10
